@@ -1,0 +1,175 @@
+version: '3.8'
+
+# Environment variables can be set in .env file
+# See .env.example for all available options
+
+services:
+  # Ollama init service - pulls and loads models on startup
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    volumes:
+      - ollama-data:/root/.ollama
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Start ollama in the background
+        ollama serve &
+        # Wait for ollama to be ready
+        sleep 5
+        
+        # Pull models (customize as needed)
+        echo "Pulling models..."
+        ollama pull llama3.2:latest
+        ollama pull mistral:latest
+        
+        # Load models into memory via generate endpoint
+        echo "Loading llama3.2 into memory..."
+        curl -s http://localhost:11434/api/generate -d '{
+          "model": "llama3.2:latest",
+          "prompt": "Hi",
+          "stream": false
+        }' > /dev/null
+        
+        echo "Loading mistral into memory..."
+        curl -s http://localhost:11434/api/generate -d '{
+          "model": "mistral:latest",
+          "prompt": "Hi",
+          "stream": false
+        }' > /dev/null
+        
+        echo "Models pulled and loaded successfully!"
+        
+        # Keep container running
+        wait
+    networks:
+      - agent-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # Ollama service - serves LLM models
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-1}
+      - OLLAMA_NUM_THREADS=${OLLAMA_NUM_THREADS:-8}
+    networks:
+      - agent-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    depends_on:
+      - ollama-init
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ChromaDB - vector database for embeddings
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "${CHROMA_PORT:-8000}:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=${CHROMA_PERSIST_DIRECTORY:-/chroma/chroma}
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Neo4j - graph database
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"  # HTTP
+      - "${NEO4J_BOLT_PORT:-7687}:7687"  # Bolt
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-import:/var/lib/neo4j/import
+      - neo4j-plugins:/plugins
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password123}
+      - NEO4J_dbms_memory_pagecache_size=1G
+      - NEO4J_dbms_memory_heap_initial__size=1G
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USER:-neo4j} -p ${NEO4J_PASSWORD:-password123} 'RETURN 1'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis - caching and message broker
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory ${REDIS_MAX_MEMORY:-512mb} --maxmemory-policy allkeys-lru
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ollama-data:
+    driver: local
+  chroma-data:
+    driver: local
+  neo4j-data:
+    driver: local
+  neo4j-logs:
+    driver: local
+  neo4j-import:
+    driver: local
+  neo4j-plugins:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  agent-network:
+    driver: bridge
