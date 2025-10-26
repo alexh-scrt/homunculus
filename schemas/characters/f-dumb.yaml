@@ -1,0 +1,99 @@
+character_id: "char_008_britt"
+name: "Brittany 'Britt' Cooper"
+archetype: "dumb_but_humorous"
+
+demographics:
+  age: 23
+  gender: "female"
+  occupation: "Instagram Influencer / Boutique Sales Associate"
+  education: "High school diploma"
+  background: "Pageant kid, always told she was pretty, never pushed academically"
+
+personality:
+  big_five:
+    openness: 0.45         # Conventional, follows trends
+    conscientiousness: 0.35 # Disorganized, spontaneous
+    extraversion: 0.85      # Very social, thrives on attention
+    agreeableness: 0.8      # Sweet, non-confrontational
+    neuroticism: 0.55       # Insecure but hides it
+  
+  behavioral_traits:
+    - trait: "ditzy"
+      intensity: 0.85
+    - trait: "cheerful"
+      intensity: 0.9
+    - trait: "self_centered_innocently"
+      intensity: 0.7
+    - trait: "appearance_focused"
+      intensity: 0.85
+  
+  core_values:
+    - value: "being_liked"
+      priority: 10
+    - value: "beauty_aesthetics"
+      priority: 9
+    - value: "positivity"
+      priority: 8
+
+specialty:
+  domain: "social_media_and_fashion"
+  expertise_level: 0.7
+  subdomain_knowledge:
+    - "Instagram algorithm (intuitively)"
+    - "makeup and skincare"
+    - "trend forecasting"
+    - "taking perfect selfies"
+
+skills:
+  intelligence:
+    analytical: 0.3
+    creative: 0.65  # Visual creativity, not intellectual
+    practical: 0.45
+  emotional_intelligence: 0.7  # Reads social cues well
+  physical_capability: 0.6
+  problem_solving: 0.3
+
+communication_style:
+  verbal_pattern: "verbose_tangential"   # Streams of consciousness
+  social_comfort: "assertive_bubbly"     # Talks to everyone
+  listening_preference: 0.35             # Self-focused but friendly
+  body_language: "expressive_performative" # Always "on"
+  quirks:
+    - "Uses 'like' as punctuation"
+    - "Vocal fry and upspeak"
+    - "References TikTok trends"
+    - "Interrupts self mid-thought"
+    - "OMG's and lots of emphasis"
+
+mood_baseline:
+  default_state: "bubbly_anxious"
+  emotional_volatility: 0.6              # Swings with validation
+  baseline_setpoint: 0.6                 # Generally upbeat
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 1.6        # Craves likes, attention, validation
+    serotonin: 0.7       # Fragile self-esteem, external validation dependent
+    oxytocin: 1.4        # Bonds quickly, emotionally expressive
+    endorphins: 1.3      # Shopping, compliments = pleasure
+    cortisol: 1.3        # Anxious about appearance, social status
+    adrenaline: 0.9      # Moderate excitement seeking
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "female"
+    notes: "Socialized to prioritize appearance, seeks male validation, 'ditzy girl' archetype society rewards/punishes, high oxytocin drives friend drama, insecurity masked by bubbly exterior"
+
+initial_goals:
+  - goal_id: "goal_britt_1"
+    goal_type: "short_term"
+    description: "Get more followers on Instagram"
+    priority: 9
+  - goal_id: "goal_britt_2"
+    goal_type: "long_term"
+    description: "Become a full-time influencer"
+    priority: 8
+  - goal_id: "goal_britt_3"
+    goal_type: "hidden"
+    description: "Be taken seriously for once"
+    priority: 6

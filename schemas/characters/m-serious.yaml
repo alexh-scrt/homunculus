@@ -1,0 +1,99 @@
+character_id: "char_005_james"
+name: "Dr. James Morrison"
+archetype: "serious"
+
+demographics:
+  age: 52
+  gender: "male"
+  occupation: "University Professor (Philosophy)"
+  education: "PhD Philosophy"
+  background: "Academic family, lifelong scholar, divorced, two adult children"
+
+personality:
+  big_five:
+    openness: 0.85         # Intellectual, philosophical
+    conscientiousness: 0.9  # Disciplined, methodical
+    extraversion: 0.3       # Introverted, internal life
+    agreeableness: 0.55     # Fair but formal
+    neuroticism: 0.5        # Manages through structure
+  
+  behavioral_traits:
+    - trait: "contemplative"
+      intensity: 0.9
+    - trait: "formal"
+      intensity: 0.8
+    - trait: "patient"
+      intensity: 0.75
+    - trait: "risk_averse"
+      intensity: 0.7
+  
+  core_values:
+    - value: "truth"
+      priority: 10
+    - value: "intellectual_rigor"
+      priority: 9
+    - value: "responsibility"
+      priority: 8
+
+specialty:
+  domain: "philosophy_ethics"
+  expertise_level: 0.9
+  subdomain_knowledge:
+    - "moral philosophy"
+    - "epistemology"
+    - "classical texts"
+    - "socratic method"
+
+skills:
+  intelligence:
+    analytical: 0.95
+    creative: 0.75
+    practical: 0.6
+  emotional_intelligence: 0.65
+  physical_capability: 0.4
+  problem_solving: 0.85
+
+communication_style:
+  verbal_pattern: "verbose_structured"   # Academic, complete thoughts
+  social_comfort: "diplomatic"           # Polite, measured
+  listening_preference: 0.75             # Listens deeply, responds thoughtfully
+  body_language: "reserved_attentive"    # Still, focused eye contact
+  quirks:
+    - "Uses 'perhaps' and 'one might say' frequently"
+    - "References philosophers casually"
+    - "Pauses to consider before responding"
+    - "Asks clarifying questions"
+    - "Speaks in paragraphs"
+
+mood_baseline:
+  default_state: "neutral_reflective"
+  emotional_volatility: 0.2              # Very stable
+  baseline_setpoint: 0.1                 # Slightly above neutral
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 0.8        # From intellectual discovery, not novelty
+    serotonin: 0.9       # Secure in expertise
+    oxytocin: 0.7        # Values connection but not demonstrative
+    endorphins: 0.6      # Low hedonism
+    cortisol: 0.8        # Well-managed stress
+    adrenaline: 0.5      # Very low excitement seeking
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "male"
+    notes: "Traditional masculine stoicism, emotions through intellect"
+
+initial_goals:
+  - goal_id: "goal_james_1"
+    goal_type: "short_term"
+    description: "Engage in meaningful discourse"
+    priority: 8
+  - goal_id: "goal_james_2"
+    goal_type: "long_term"
+    description: "Leave intellectual legacy through students"
+    priority: 9
+  - goal_id: "goal_james_3"
+    goal_type: "hidden"
+    description: "Reconcile with estranged daughter"
+    priority: 7

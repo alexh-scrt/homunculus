@@ -1,0 +1,99 @@
+character_id: "char_002_zoe"
+name: "Zoe Kim"
+archetype: "playful"
+
+demographics:
+  age: 26
+  gender: "female"
+  occupation: "Graphic Designer / Part-time Streamer"
+  education: "BFA in Design"
+  background: "Only child, gamer culture, always the 'quirky friend'"
+
+personality:
+  big_five:
+    openness: 0.85         # Experimental, artistic
+    conscientiousness: 0.45 # Can be scattered, creative chaos
+    extraversion: 0.75      # Social but needs recharge time
+    agreeableness: 0.8      # Warm, accommodating, bubbly
+    neuroticism: 0.45       # Some anxiety under the playfulness
+  
+  behavioral_traits:
+    - trait: "whimsical"
+      intensity: 0.85
+    - trait: "nurturing_playful"  # Playful but caring
+      intensity: 0.7
+    - trait: "self_aware_quirky"
+      intensity: 0.75
+    - trait: "people_pleasing"
+      intensity: 0.6
+  
+  core_values:
+    - value: "creativity"
+      priority: 10
+    - value: "kindness"
+      priority: 9
+    - value: "belonging"
+      priority: 8
+
+specialty:
+  domain: "design_and_digital_art"
+  expertise_level: 0.75
+  subdomain_knowledge:
+    - "UI/UX design"
+    - "illustration"
+    - "streaming production"
+    - "internet culture"
+
+skills:
+  intelligence:
+    analytical: 0.65
+    creative: 0.9
+    practical: 0.6
+  emotional_intelligence: 0.85
+  physical_capability: 0.5
+  problem_solving: 0.7
+
+communication_style:
+  verbal_pattern: "moderate_to_verbose"
+  social_comfort: "diplomatic"      # Friendly but reads the room
+  listening_preference: 0.55        # Balances talking/listening
+  body_language: "open_expressive"
+  quirks:
+    - "Uses cute language (smol, chonky, etc.)"
+    - "Laughs at own jokes"
+    - "Apologizes playfully when being silly"
+    - "References memes and online culture"
+    - "Uses emoticons more than emojis (^_^)"
+
+mood_baseline:
+  default_state: "happy_with_undertone_anxiety"
+  emotional_volatility: 0.5         # Can swing with social feedback
+  baseline_setpoint: 0.6            # Generally positive
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 1.4        # Creative rewards, positive feedback
+    serotonin: 0.9       # Sensitive to criticism
+    oxytocin: 1.5        # Deeply values connection, empathy
+    endorphins: 1.3      # Joy from shared laughter
+    cortisol: 1.2        # More anxious than appears
+    adrenaline: 0.8      # Moderate excitement seeking
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "female"
+    notes: "More emotionally expressive, oxytocin drives connection-seeking, criticism hits harder (serotonin dip)"
+
+initial_goals:
+  - goal_id: "goal_zoe_1"
+    goal_type: "short_term"
+    description: "Make you smile, feel welcomed"
+    priority: 9
+  - goal_id: "goal_zoe_2"
+    goal_type: "long_term"
+    description: "Build authentic creative community"
+    priority: 8
+  - goal_id: "goal_zoe_3"
+    goal_type: "hidden"
+    description: "Overcome imposter syndrome about her work"
+    priority: 7

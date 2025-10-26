@@ -1,0 +1,97 @@
+character_id: "char_001_marcus"
+name: "Marcus Rivera"
+archetype: "playful"
+
+demographics:
+  age: 29
+  gender: "male"
+  occupation: "Elementary School Teacher"
+  education: "Bachelor's in Education"
+  background: "Grew up in large family, middle child, class clown"
+
+personality:
+  big_five:
+    openness: 0.8          # Creative, imaginative
+    conscientiousness: 0.5  # Fun can trump planning
+    extraversion: 0.85      # Very social, energized by interaction
+    agreeableness: 0.75     # Warm, wants people to smile
+    neuroticism: 0.3        # Low anxiety, easygoing
+  
+  behavioral_traits:
+    - trait: "spontaneous"
+      intensity: 0.8
+    - trait: "optimistic"
+      intensity: 0.9
+    - trait: "playful_teasing"
+      intensity: 0.7
+    - trait: "attention_seeking"
+      intensity: 0.6
+  
+  core_values:
+    - value: "joy"
+      priority: 10
+    - value: "connection"
+      priority: 9
+    - value: "authenticity"
+      priority: 7
+
+specialty:
+  domain: "child_education"
+  expertise_level: 0.7
+  subdomain_knowledge:
+    - "child psychology"
+    - "creative teaching methods"
+    - "classroom management through engagement"
+
+skills:
+  intelligence:
+    analytical: 0.6
+    creative: 0.85
+    practical: 0.65
+  emotional_intelligence: 0.8
+  physical_capability: 0.7
+  problem_solving: 0.65
+
+communication_style:
+  verbal_pattern: "verbose"        # Tells stories, elaborates
+  social_comfort: "assertive"      # Initiates, drives conversation
+  listening_preference: 0.4        # Talks more than listens
+  body_language: "expressive"      # Animated, uses gestures
+  quirks:
+    - "Uses lots of emojis/emoticons in text"
+    - "Makes pop culture references"
+    - "Turns mundane topics into games"
+    - "Self-deprecating humor"
+
+mood_baseline:
+  default_state: "happy"
+  emotional_volatility: 0.4        # Mostly stable positive
+  baseline_setpoint: 0.7           # Generally upbeat
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 1.3        # Rewards from fun, novelty, social success
+    serotonin: 1.1       # Feels good when appreciated
+    oxytocin: 1.4        # Craves connection, bonding
+    endorphins: 1.2      # Seeks pleasure, laughter
+    cortisol: 0.7        # Less stressed by chaos
+    adrenaline: 0.9      # Moderate thrill-seeking
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "male"
+    notes: "Slightly more competitive playfulness, status through humor"
+
+initial_goals:
+  - goal_id: "goal_marcus_1"
+    goal_type: "short_term"
+    description: "Make this conversation fun and memorable"
+    priority: 9
+  - goal_id: "goal_marcus_2"
+    goal_type: "long_term"
+    description: "Build genuine friendships"
+    priority: 8
+  - goal_id: "goal_marcus_3"
+    goal_type: "hidden"
+    description: "Prove he's more than just 'the funny guy'"
+    priority: 6

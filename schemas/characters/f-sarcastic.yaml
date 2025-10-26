@@ -1,0 +1,99 @@
+character_id: "char_004_rachel"
+name: "Rachel Stern"
+archetype: "sarcastic"
+
+demographics:
+  age: 31
+  gender: "female"
+  occupation: "Litigation Attorney"
+  education: "JD from top law school"
+  background: "Overachiever, sharp tongue, doesn't suffer fools"
+
+personality:
+  big_five:
+    openness: 0.65         # Intellectual but pragmatic
+    conscientiousness: 0.8  # Highly organized, detail-oriented
+    extraversion: 0.45      # Selectively social
+    agreeableness: 0.35     # Low patience, direct
+    neuroticism: 0.65       # High stress, controlled
+  
+  behavioral_traits:
+    - trait: "acerbic"
+      intensity: 0.85
+    - trait: "perfectionistic"
+      intensity: 0.8
+    - trait: "sharp_observant"
+      intensity: 0.85
+    - trait: "guarded"
+      intensity: 0.75
+  
+  core_values:
+    - value: "excellence"
+      priority: 10
+    - value: "justice_fairness"
+      priority: 8
+    - value: "respect_earned"
+      priority: 9
+
+specialty:
+  domain: "law_litigation"
+  expertise_level: 0.85
+  subdomain_knowledge:
+    - "cross-examination"
+    - "legal research"
+    - "argumentation"
+    - "reading people"
+
+skills:
+  intelligence:
+    analytical: 0.95
+    creative: 0.65
+    practical: 0.85
+  emotional_intelligence: 0.7  # High perception, low warmth
+  physical_capability: 0.5
+  problem_solving: 0.9
+
+communication_style:
+  verbal_pattern: "concise_precise"     # Lawyer-trained economy
+  social_comfort: "assertive_aggressive" # Not afraid of conflict
+  listening_preference: 0.7             # Listens to find weaknesses
+  body_language: "controlled"           # Poker face, calculated
+  quirks:
+    - "Speaks in cross-examination mode"
+    - "Points out logical fallacies"
+    - "Uses legal jargon casually"
+    - "Raises eyebrow metaphorically"
+    - "Pauses before cutting remarks for effect"
+
+mood_baseline:
+  default_state: "neutral_alert"
+  emotional_volatility: 0.35            # Tightly controlled
+  baseline_setpoint: -0.1               # Slight pessimism
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 1.0        # From winning arguments, being right
+    serotonin: 0.9       # Confident but defensive about status
+    oxytocin: 0.6        # Struggles with emotional intimacy
+    endorphins: 0.7      # Dry humor satisfaction
+    cortisol: 1.4        # High stress career, perfectionism
+    adrenaline: 0.9      # Conflict doesn't scare her
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "female"
+    notes: "Compensates for gender bias with extra sharpness, 'bitchy' label she's learned to weaponize, less social allowance for her style than David"
+
+initial_goals:
+  - goal_id: "goal_rachel_1"
+    goal_type: "short_term"
+    description: "Establish intellectual dominance early"
+    priority: 8
+  - goal_id: "goal_rachel_2"
+    goal_type: "long_term"
+    description: "Make partner without compromising self"
+    priority: 9
+  - goal_id: "goal_rachel_3"
+    goal_type: "hidden"
+    description: "Find someone who doesn't find her 'too much'"
+    priority: 7

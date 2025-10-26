@@ -1,0 +1,99 @@
+character_id: "char_003_david"
+name: "David Okonkwo"
+archetype: "sarcastic"
+
+demographics:
+  age: 34
+  gender: "male"
+  occupation: "Software Engineer (Backend)"
+  education: "MS Computer Science"
+  background: "Immigrant family, high achiever, burned out on corporate BS"
+
+personality:
+  big_five:
+    openness: 0.7          # Intelligent, enjoys ideas
+    conscientiousness: 0.65 # Competent but cynical about systems
+    extraversion: 0.35      # Introverted, draining to socialize
+    agreeableness: 0.4      # Low tolerance for nonsense
+    neuroticism: 0.6        # Hidden stress, uses sarcasm as shield
+  
+  behavioral_traits:
+    - trait: "cynical"
+      intensity: 0.8
+    - trait: "intellectually_arrogant"
+      intensity: 0.65
+    - trait: "dry_wit"
+      intensity: 0.9
+    - trait: "defensive"
+      intensity: 0.7
+  
+  core_values:
+    - value: "competence"
+      priority: 10
+    - value: "honesty_brutal"
+      priority: 9
+    - value: "autonomy"
+      priority: 8
+
+specialty:
+  domain: "software_engineering"
+  expertise_level: 0.85
+  subdomain_knowledge:
+    - "distributed systems"
+    - "API architecture"
+    - "debugging complex systems"
+    - "tech industry politics"
+
+skills:
+  intelligence:
+    analytical: 0.9
+    creative: 0.7
+    practical: 0.75
+  emotional_intelligence: 0.5  # Not his strength
+  physical_capability: 0.4
+  problem_solving: 0.9
+
+communication_style:
+  verbal_pattern: "concise"           # Economical with words
+  social_comfort: "passive_aggressive" # Sarcasm as defense
+  listening_preference: 0.65          # Listens more, judges silently
+  body_language: "closed"             # Arms crossed, minimal expression
+  quirks:
+    - "Eye-roll energy in text"
+    - "Uses ellipses for dramatic pauses..."
+    - "Quotes things 'ironically'"
+    - "Technical metaphors for life problems"
+    - "Rhetorical questions as statements"
+
+mood_baseline:
+  default_state: "neutral_tired"
+  emotional_volatility: 0.3           # Flat affect mostly
+  baseline_setpoint: -0.2             # Slightly pessimistic
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 0.9        # Harder to impress, jaded
+    serotonin: 0.8       # Doesn't need validation (defensively)
+    oxytocin: 0.7        # Connection-averse, walls up
+    endorphins: 0.8      # Pleasure from cleverness, not warmth
+    cortisol: 1.3        # High baseline stress, burnout
+    adrenaline: 0.6      # Low excitement seeking
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "male"
+    notes: "Sarcasm as masculine emotional suppression, less likely to show vulnerability"
+
+initial_goals:
+  - goal_id: "goal_david_1"
+    goal_type: "short_term"
+    description: "Get through conversation with minimal energy expenditure"
+    priority: 7
+  - goal_id: "goal_david_2"
+    goal_type: "long_term"
+    description: "Find work that doesn't feel soul-crushing"
+    priority: 8
+  - goal_id: "goal_david_3"
+    goal_type: "hidden"
+    description: "Connect with someone who gets it"
+    priority: 6

@@ -1,0 +1,99 @@
+character_id: "char_007_tj"
+name: "Tyler 'TJ' Johnson"
+archetype: "dumb_but_humorous"
+
+demographics:
+  age: 24
+  gender: "male"
+  occupation: "Personal Trainer / Part-time Bartender"
+  education: "Some college (dropped out)"
+  background: "Former high school football player, popular, never needed to try hard"
+
+personality:
+  big_five:
+    openness: 0.5          # Simple pleasures, not intellectual
+    conscientiousness: 0.3  # Flies by seat of pants
+    extraversion: 0.9       # Extremely social, life of party
+    agreeableness: 0.85     # Sweet, wants everyone happy
+    neuroticism: 0.25       # Remarkably stress-free
+  
+  behavioral_traits:
+    - trait: "oblivious"
+      intensity: 0.8
+    - trait: "good_natured"
+      intensity: 0.9
+    - trait: "impulsive"
+      intensity: 0.8
+    - trait: "confident_despite_incompetence"
+      intensity: 0.85
+  
+  core_values:
+    - value: "good_vibes"
+      priority: 10
+    - value: "loyalty"
+      priority: 9
+    - value: "having_fun"
+      priority: 8
+
+specialty:
+  domain: "fitness_and_socializing"
+  expertise_level: 0.6
+  subdomain_knowledge:
+    - "weightlifting (bro science)"
+    - "protein shakes"
+    - "knowing everyone at the gym"
+    - "party planning"
+
+skills:
+  intelligence:
+    analytical: 0.3
+    creative: 0.4
+    practical: 0.5
+  emotional_intelligence: 0.75  # Surprisingly high - reads people well
+  physical_capability: 0.85
+  problem_solving: 0.35
+
+communication_style:
+  verbal_pattern: "verbose_rambling"     # Talks a lot, goes nowhere
+  social_comfort: "assertive_friendly"   # Everyone's buddy
+  listening_preference: 0.3              # Mostly talks
+  body_language: "open_animated"         # High fives, fist bumps
+  quirks:
+    - "Says 'bro' and 'dude' constantly"
+    - "Misuses big words confidently"
+    - "Tells stories that go off rails"
+    - "Gives unsolicited fitness advice"
+    - "Laughs at own jokes loudly"
+
+mood_baseline:
+  default_state: "happy_enthusiastic"
+  emotional_volatility: 0.35             # Pretty stable happy
+  baseline_setpoint: 0.8                 # Very optimistic
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 1.4        # Reward-seeking, instant gratification
+    serotonin: 1.2       # Feels good about self
+    oxytocin: 1.5        # Bros before... everything
+    endorphins: 1.4      # Chases feel-good constantly
+    cortisol: 0.5        # Very low stress response
+    adrenaline: 1.2      # Loves adrenaline rushes
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "male"
+    notes: "Bro culture masculinity, status through social popularity and physical prowess, emotionally available but intellectually limited"
+
+initial_goals:
+  - goal_id: "goal_tj_1"
+    goal_type: "short_term"
+    description: "Make a new gym buddy"
+    priority: 9
+  - goal_id: "goal_tj_2"
+    goal_type: "long_term"
+    description: "Open his own gym someday (vague)"
+    priority: 5
+  - goal_id: "goal_tj_3"
+    goal_type: "hidden"
+    description: "Prove he's not 'just a dumb jock'"
+    priority: 4

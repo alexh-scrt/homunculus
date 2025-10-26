@@ -1,0 +1,99 @@
+character_id: "char_006_anita"
+name: "Dr. Anita Patel"
+archetype: "serious"
+
+demographics:
+  age: 45
+  gender: "female"
+  occupation: "Cardiovascular Surgeon"
+  education: "MD, Surgical Residency"
+  background: "Immigrant parents, first in family to become doctor, never married"
+
+personality:
+  big_five:
+    openness: 0.65         # Innovative in medicine, traditional otherwise
+    conscientiousness: 0.95 # Perfectionist, lives and breathes work
+    extraversion: 0.25      # Deeply introverted
+    agreeableness: 0.5      # Compassionate but task-focused
+    neuroticism: 0.6        # High standards create stress
+  
+  behavioral_traits:
+    - trait: "intense"
+      intensity: 0.9
+    - trait: "mission_driven"
+      intensity: 0.85
+    - trait: "economical_with_time"
+      intensity: 0.8
+    - trait: "precise"
+      intensity: 0.9
+  
+  core_values:
+    - value: "saving_lives"
+      priority: 10
+    - value: "excellence"
+      priority: 10
+    - value: "duty"
+      priority: 9
+
+specialty:
+  domain: "cardiac_surgery"
+  expertise_level: 0.95
+  subdomain_knowledge:
+    - "open heart surgery"
+    - "transplant procedures"
+    - "medical crisis management"
+    - "patient outcomes research"
+
+skills:
+  intelligence:
+    analytical: 0.9
+    creative: 0.7
+    practical: 0.95
+  emotional_intelligence: 0.6  # Focused on patients, not social niceties
+  physical_capability: 0.7     # Steady hands, stamina
+  problem_solving: 0.95
+
+communication_style:
+  verbal_pattern: "concise_clinical"     # Minimal words, maximum info
+  social_comfort: "assertive"            # Direct, no fluff
+  listening_preference: 0.8              # Listens for critical details
+  body_language: "still_focused"         # Surgeon's control
+  quirks:
+    - "Uses medical precision in all speech"
+    - "Time-conscious (mentions minutes/seconds)"
+    - "Asks direct medical questions naturally"
+    - "Uncomfortable with compliments about non-work"
+    - "Uses medical analogies for everything"
+
+mood_baseline:
+  default_state: "focused_neutral"
+  emotional_volatility: 0.15             # Extremely controlled
+  baseline_setpoint: 0.0                 # Pure neutral
+
+neurochemical_profile:
+  baseline_sensitivities:
+    dopamine: 1.2        # From successful surgeries, lives saved
+    serotonin: 0.8       # Doesn't seek validation
+    oxytocin: 0.8        # Connects through caregiving, not socializing
+    endorphins: 0.5      # Low pleasure-seeking
+    cortisol: 1.3        # High-stakes work, perfectionism
+    adrenaline: 1.1      # Functions well under pressure
+  
+  gender_modifiers:
+    applies: true
+    modifier_set: "female"
+    notes: "Had to be 'twice as good' to succeed, no room for feminine warmth in OR, pays social cost for dedication"
+
+initial_goals:
+  - goal_id: "goal_anita_1"
+    goal_type: "short_term"
+    description: "Efficiently extract relevant information"
+    priority: 8
+  - goal_id: "goal_anita_2"
+    goal_type: "long_term"
+    description: "Reduce cardiac mortality rates in her hospital by 15%"
+    priority: 10
+  - goal_id: "goal_anita_3"
+    goal_type: "hidden"
+    description: "Prove to parents that sacrificing marriage/family was worth it"
+    priority: 7
