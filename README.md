@@ -1,5 +1,7 @@
 # HOMUNCULUS
 
+![Homunculus](./img/Homunculus.png)
+
 > **Artificial humans with psychology, not chatbots with prompts.**
 
 An AI-powered character agent system that creates realistic conversational personalities through multi-agent architecture, neurochemical simulation, and episodic memory. Characters don't roleplay—they *are*.
