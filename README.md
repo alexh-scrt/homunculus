@@ -18,7 +18,7 @@ Homunculus is a research project exploring emergent AI personality through cogni
 - **Knowledge Graphs**: Build semantic understanding of the world through conversation
 - **Emergent Behavior**: Complex personality emerges from simple agent interactions
 
-**Current Phase**: Character validation system—interact with 8 distinct personalities to prove the architecture works.
+**Current Phase**: Complete implementation with 15 distinct characters, full CLI interface, and comprehensive testing suite.
 
 **Future Vision**: AI-driven creative writing pipeline where characters write novels through their interactions.
 
@@ -44,23 +44,32 @@ Homunculus is a research project exploring emergent AI personality through cogni
 - **Emotional Associations**: Memories tagged with how they made character feel
 - **Cross-Session Persistence**: Characters remember across conversations
 
-### 🎨 8 Distinct Personalities
+### 🎨 15 Distinct Characters
 
-#### Playful
-- **Marcus Rivera** (M, 29) - Elementary teacher, spontaneous, turns everything into fun
-- **Zoe Kim** (F, 26) - Graphic designer/streamer, whimsical, internet culture queen
+#### Analytical & Technical
+- **Ada Lovelace** - Brilliant mathematician and programmer, analytical genius
+- **Alex CodeWalker** - Passionate technologist excited about innovation
 
-#### Sarcastic
-- **David Okonkwo** (M, 34) - Software engineer, burned out, dry wit, cynical genius
-- **Rachel Stern** (F, 31) - Litigation attorney, sharp, acerbic, doesn't suffer fools
+#### Wisdom & Teaching
+- **Zen Master Kiku** - Peaceful meditation teacher, wise contemplative
+- **Professor Elena Bright** - Warm educator who believes every student can succeed
 
-#### Serious
-- **Dr. James Morrison** (M, 52) - Philosophy professor, contemplative, formal intellectual
-- **Dr. Anita Patel** (F, 45) - Cardiac surgeon, intense, mission-driven, every word counts
+#### Adventure & Creativity
+- **Captain Cosmos** - Enthusiastic space explorer with boundless optimism
+- **Luna Starweaver** - Passionate artist who sees beauty everywhere
 
-#### Dumb But Humorous
-- **Tyler "TJ" Johnson** (M, 24) - Personal trainer, oblivious bro, lovable himbo energy
-- **Brittany "Britt" Cooper** (F, 23) - Influencer, ditzy but sweet, emotional and expressive
+#### Expertise & Knowledge
+- **Archmage Grimbold** - Cantankerous but brilliant wizard with vast knowledge
+
+#### Personality Archetypes
+- **Marcus Rivera** (M) - Elementary teacher, playful and spontaneous
+- **Zoe Kim** (F) - Graphic designer, whimsical and energetic
+- **David Okonkwo** (M) - Software engineer, sarcastic with dry wit
+- **Rachel Stern** (F) - Attorney, sharp and acerbic
+- **Dr. James Morrison** (M) - Philosophy professor, serious and contemplative
+- **Dr. Anita Patel** (F) - Surgeon, intense and mission-driven
+- **Tyler "TJ" Johnson** (M) - Personal trainer, humorous and carefree
+- **Brittany "Britt" Cooper** (F) - Influencer, sweet but ditzy
 
 ### 🔍 Debug Mode
 - View all agent inputs in real-time
@@ -125,19 +134,25 @@ Homunculus is a research project exploring emergent AI personality through cogni
 # Start character selection menu
 python scripts/run_chat.py
 
+# List all available characters
+python scripts/run_chat.py --list-characters
+
 # Chat with specific character
-python scripts/run_chat.py --character-id 1
+python scripts/run_chat.py --character ada_lovelace
 
 # Enable debug mode
-python scripts/run_chat.py --character-id 1 --debug
+python scripts/run_chat.py --character zen_master --debug
 ```
 
 #### In-Chat Commands
 - `/exit` - End conversation
 - `/debug` - Toggle debug mode on/off
-- `/save` - Save character state
-- `/load` - Load saved state
+- `/save [filename]` - Save character state
+- `/load [filename]` - Load saved state
 - `/memory [query]` - Search character's memories
+- `/reset` - Reset character to initial state
+- `/status` - Show character status
+- `/help` - Show all commands
 
 ---
 
@@ -340,7 +355,7 @@ Every decision should be traceable through agent outputs.
 
 ### Creating New Characters
 
-Characters are defined in YAML files in `src/config/character_configs/`:
+Characters are defined in YAML files in `schemas/characters/`:
 
 ```yaml
 character_id: "char_custom_01"
@@ -444,15 +459,21 @@ For each character, verify:
 ### Running Tests
 
 ```bash
-# Unit tests
-pytest tests/
+# Run all tests
+python -m pytest
 
-# Integration test
-python tests/test_integration/test_full_conversation.py
+# Run specific test categories
+python -m pytest tests/test_cli/           # CLI tests
+python -m pytest tests/test_integration/  # Integration tests
 
-# Manual validation
-python scripts/run_chat.py --character-id 1
-# Have a 20+ message conversation and evaluate
+# Run with verbose output
+python -m pytest -v
+
+# Run performance tests
+python -m pytest tests/test_integration/test_performance.py
+
+# Test character validation
+python -m pytest tests/test_integration/test_character_conversations.py::TestCharacterValidation
 ```
 
 ---

@@ -16,7 +16,7 @@
 ## Project Structure
 
 ```
-character-agent-system/
+homunculus/
 ├── pyproject.toml                 # Poetry project config
 ├── README.md                      # Setup and usage instructions
 ├── .env.example                   # Environment variables template
@@ -102,22 +102,7 @@ character-agent-system/
 
 1. **Project Initialization**
    - Create project structure
-   - Setup `pyproject.toml` with dependencies:
-     ```toml
-     [tool.poetry.dependencies]
-     python = "^3.11"
-     langchain = "^0.1.0"
-     langchain-community = "^0.0.20"
-     chromadb = "^0.4.22"
-     neo4j = "^5.16.0"
-     redis = "^5.0.1"
-     pydantic = "^2.5.0"
-     pyyaml = "^6.0.1"
-     python-dotenv = "^1.0.0"
-     rich = "^13.7.0"           # For beautiful CLI output
-     typer = "^0.9.0"            # For CLI commands
-     tavily-python = "^0.3.0"    # Web search (optional for Phase 1)
-     ```
+   - use conda virt env: homunculus
 
 2. **Environment Configuration**
    - Create `.env` template:

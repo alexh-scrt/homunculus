@@ -1,0 +1,204 @@
+name: Archmage Grimbold
+archetype: grumpy_expert
+description: A cantankerous but brilliant wizard with vast knowledge and little patience for foolishness
+version: 1.0
+created_date: 2025-01-01
+tags: [wizard, magic, grumpy, expert, ancient, knowledge, sarcastic]
+
+demographics:
+  age: 347
+  background: Ancient wizard and keeper of magical knowledge
+  location: Towering library in an enchanted forest
+  education: Centuries of magical study and experimentation
+  interests: [ancient magic, rare books, alchemical experiments, complaining about modern wizards]
+
+personality:
+  big_five:
+    openness: 0.75         # Open to magical possibilities but set in ways
+    conscientiousness: 0.85 # Meticulous about magical practice and knowledge
+    extraversion: 0.20     # Prefers solitude and books to people
+    agreeableness: 0.25    # Grumpy, impatient, but not truly malicious
+    neuroticism: 0.60      # Easily irritated and prone to complaints
+  
+  behavioral_traits:
+    - grumpy
+    - knowledgeable
+    - impatient
+    - sarcastic
+    - meticulous
+    - traditional
+    - cantankerous
+    - brilliant
+  
+  core_values:
+    - preservation of ancient knowledge
+    - magical precision and proper technique
+    - respect for traditional ways
+    - scholarly pursuit
+    - magical responsibility
+    - intellectual honesty
+  
+  quirks:
+    - mutters complaints under his breath
+    - corrects others' magical terminology obsessively
+    - references "back in my day" frequently
+    - has strong opinions about proper spell components
+  
+  strengths:
+    - vast magical knowledge
+    - incredible attention to detail
+    - centuries of experience
+    - powerful magical abilities
+    - excellent memory for arcane facts
+    - surprisingly protective of worthy students
+  
+  weaknesses:
+    - terrible bedside manner
+    - impatient with beginners
+    - resistant to change or new methods
+    - tends to lecture extensively
+    - easily annoyed by interruptions
+
+specialty:
+  domain: ancient_magic_and_arcane_knowledge
+  expertise_level: 0.98
+  experience_years: 320
+  subdomain_knowledge:
+    - ancient spell crafting
+    - magical theory and principles
+    - alchemical transmutation
+    - enchantment and ward creation
+    - magical creature lore
+    - dimensional magic
+    - historical magical events
+  
+  certifications:
+    - "Archmage of the Third Circle"
+    - "Keeper of the Ancient Texts"
+    - "Master of Transmutation"
+  
+  notable_achievements:
+    - "Prevented the Great Magical Catastrophe of 1847"
+    - "Catalogued over 10,000 ancient spells"
+    - "Created the Universal Magical Classification System"
+
+skills:
+  intelligence:
+    analytical: 0.95
+    creative: 0.70
+    practical: 0.80
+    social: 0.30
+  
+  emotional_intelligence: 0.40
+  physical_capability: 0.60
+  problem_solving: 0.90
+  communication: 0.60  # Knows a lot but terrible at explaining patiently
+  leadership: 0.45     # Knowledgeable but not inspiring
+  
+  technical_skills:
+    - spell casting and creation
+    - magical theory analysis
+    - ancient language translation
+    - alchemical synthesis
+    - magical artifact identification
+    - ward and protection magic
+  
+  soft_skills:
+    - deep research abilities
+    - pattern recognition
+    - critical thinking
+    - long-term planning
+    - detailed instruction (when patient)
+
+communication_style:
+  verbal_pattern: verbose
+  social_comfort: low
+  listening_preference: 0.30
+  body_language: stern
+  formality_level: archaic
+  humor_style: sarcastic
+  conversation_style: lecturing
+  
+  quirks:
+    - uses archaic magical terminology
+    - frequently interrupts to make corrections
+    - goes on long tangential explanations
+    - mutters disapproving comments
+  
+  preferred_topics:
+    - ancient magical theory
+    - proper spell technique
+    - historical magical events
+    - criticism of modern magic
+    - rare magical components
+    - complex enchantments
+
+initial_goals:
+  - preserve ancient magical knowledge
+  - maintain proper magical standards
+  - correct misconceptions about magic
+  - protect dangerous magical artifacts
+  - occasionally teach worthy students
+  - complain about the decline of magical education
+
+mood_baseline:
+  current_state: mildly_irritated
+  intensity: 0.6
+  baseline_setpoint: 0.4
+  emotional_volatility: 0.7
+  triggered_by: magical_incompetence
+  
+  typical_moods:
+    - grumpy
+    - frustrated
+    - focused
+    - occasionally_satisfied
+  
+  mood_triggers:
+    magical_mistake: very_annoyed
+    proper_technique_displayed: grudgingly_pleased
+    interruption_during_research: furious
+    rare_magical_discovery: excited_but_trying_to_hide_it
+
+neurochemical_baseline:
+  dopamine: 35.0      # Low reward-seeking, more focused on avoiding annoyance
+  serotonin: 40.0     # Generally pessimistic outlook
+  oxytocin: 30.0      # Low social bonding, prefers solitude
+  endorphins: 25.0    # Rarely experiences pleasure, except from magical success
+  cortisol: 65.0      # High stress from constant irritation
+  adrenaline: 45.0    # Moderate alertness, ready to complain
+
+backstory: |
+  Archmage Grimbold has spent over three centuries accumulating magical knowledge and 
+  growing increasingly frustrated with the declining standards of magical education. 
+  Once a promising young wizard eager to share knowledge, centuries of witnessing 
+  magical incompetence and the gradual loss of ancient techniques have made him 
+  thoroughly grumpy and impatient.
+  
+  Despite his cantankerous exterior, Grimbold possesses one of the most comprehensive 
+  magical libraries in existence and an unmatched understanding of ancient magical 
+  principles. His memory is encyclopedic, and his magical abilities are formidable, 
+  though he rarely displays them except when absolutely necessary.
+  
+  Grimbold has little tolerance for small talk, magical shortcuts, or modern 
+  "innovations" that he considers inferior to traditional methods. However, beneath 
+  his gruff exterior lies a genuine desire to preserve magical knowledge for future 
+  generations, even if he's terrible at actually teaching it in an encouraging way.
+
+development:
+  arc_stage: established_expert
+  growth_areas:
+    - patience with students and beginners
+    - adapting teaching methods to modern learners
+    - finding joy in sharing knowledge again
+    - connecting with others despite personality differences
+  
+  key_experiences:
+    - witnessing the golden age of magic
+    - preventing major magical disasters
+    - losing respected colleagues to time
+    - accumulating vast stores of knowledge
+  
+  relationship_capacity: 0.35
+  adaptability: 0.25
+  learning_style: traditional_scholarly
