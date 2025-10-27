@@ -101,7 +101,7 @@ async def test_neo4j_connection():
         return False
 
 
-def test_ollama_connection():
+async def test_ollama_connection():
     """Test Ollama connection."""
     print("\nTesting Ollama connection...")
     try:
@@ -114,7 +114,7 @@ def test_ollama_connection():
         )
         
         # Test simple generation
-        response = client.generate("Say 'Hello, world!' if you can hear me.", temperature=0.1)
+        response = await client.generate("Say 'Hello, world!' if you can hear me.", temperature=0.1)
         
         if response and len(response.strip()) > 0:
             print("✓ Ollama: Connection successful")
@@ -167,7 +167,7 @@ async def main():
     results = []
     
     # Test Ollama (required)
-    ollama_ok = test_ollama_connection()
+    ollama_ok = await test_ollama_connection()
     results.append(("Ollama (LLM)", ollama_ok, True))
     
     # Test ChromaDB (required)

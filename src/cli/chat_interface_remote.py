@@ -1,4 +1,8 @@
-"""Enhanced interactive chat interface with dual-pane layout and real-time vitals."""
+"""Enhanced interactive chat interface with remote character agent support.
+
+This version connects to a Character Agent Server via WebSocket instead of
+running the character agent locally.
+"""
 
 import asyncio
 import json
@@ -6,13 +10,20 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
 import sys
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, skip loading
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,7 +32,8 @@ try:
     from config.character_loader import CharacterLoader, CharacterConfigurationError
     from config.settings import get_settings
     from config.logging_config import setup_logging, get_logger, log_character_session_start, log_character_session_end, log_system_info
-    from character_agent import CharacterAgent
+    from character_agent import CharacterAgent  # For fallback mode
+    from client.character_agent_client import CharacterAgentClient, CharacterAgentClientError
     from cli.debug_view import DebugView
     from cli.vitals_display import VitalsDisplay
     from cli.layout_manager import LayoutManager
@@ -33,7 +45,8 @@ except ImportError:
     from ..config.character_loader import CharacterLoader, CharacterConfigurationError
     from ..config.settings import get_settings
     from ..config.logging_config import setup_logging, get_logger, log_character_session_start, log_character_session_end, log_system_info
-    from ..character_agent import CharacterAgent
+    from ..character_agent import CharacterAgent  # For fallback mode
+    from ..client.character_agent_client import CharacterAgentClient, CharacterAgentClientError
     from .debug_view import DebugView
     from .vitals_display import VitalsDisplay
     from .layout_manager import LayoutManager
@@ -42,15 +55,23 @@ except ImportError:
     from .pane_manager import PaneManager, PaneType
 
 
-class ChatInterface:
-    """Enhanced interactive CLI with dual-pane layout and real-time vitals."""
+class RemoteChatInterface:
+    """Enhanced interactive CLI with remote character agent support."""
     
-    def __init__(self, enable_vitals: bool = True, vitals_only: bool = False):
-        """Initialize the enhanced chat interface.
+    def __init__(
+        self, 
+        enable_vitals: bool = True, 
+        vitals_only: bool = False,
+        server_url: str = "ws://localhost:8765",
+        fallback_to_local: bool = True
+    ):
+        """Initialize the remote chat interface.
         
         Args:
             enable_vitals: Whether to show vitals display (default True)
             vitals_only: Whether to show only vitals without chat (default False)
+            server_url: WebSocket URL of character agent server
+            fallback_to_local: Whether to fallback to local mode if server unavailable
         """
         # Initialize logging first
         setup_logging()
@@ -60,12 +81,22 @@ class ChatInterface:
         self.debug_view = DebugView(self.console)
         self.settings = get_settings()
         self.character_loader = CharacterLoader()
-        self.current_character: Optional[CharacterAgent] = None
+        
+        # Connection settings
+        self.server_url = server_url
+        self.fallback_to_local = fallback_to_local
+        self.is_remote_mode = False
+        
+        # Character agent (can be remote client or local agent)
+        self.current_character: Optional[Union[CharacterAgentClient, CharacterAgent]] = None
+        self.remote_client: Optional[CharacterAgentClient] = None
+        
         self.debug_mode = False
         self.enable_vitals = enable_vitals
         self.vitals_only = vitals_only
         
-        self.logger.info(f"ChatInterface initialized - vitals_enabled: {enable_vitals}, vitals_only: {vitals_only}")
+        self.logger.info(f"RemoteChatInterface initialized - vitals_enabled: {enable_vitals}, vitals_only: {vitals_only}")
+        self.logger.info(f"Server URL: {server_url}, fallback_to_local: {fallback_to_local}")
         log_system_info()
         
         # Enhanced components
@@ -87,43 +118,59 @@ class ChatInterface:
         self._input_queue = asyncio.Queue()
         self._should_exit = False
     
+    async def connect_to_server(self) -> bool:
+        """Attempt to connect to the character agent server.
+        
+        Returns:
+            True if connected successfully
+        """
+        try:
+            self.console.print(f"[cyan]Connecting to character agent server at {self.server_url}...[/cyan]")
+            
+            self.remote_client = CharacterAgentClient(
+                server_url=self.server_url,
+                timeout=None,  # Will use AGENT_TIMEOUT from .env
+                reconnect_attempts=3
+            )
+            
+            connected = await self.remote_client.connect()
+            if connected:
+                # Test connection with ping
+                if await self.remote_client.ping_server():
+                    self.is_remote_mode = True
+                    self.console.print("[green]✅ Connected to character agent server![/green]")
+                    return True
+                else:
+                    self.console.print("[yellow]⚠️ Server not responding to ping[/yellow]")
+                    await self.remote_client.disconnect()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to connect to server: {e}")
+            self.console.print(f"[red]❌ Failed to connect to server: {e}[/red]")
+        
+        return False
+    
     async def run(self, character_id: Optional[str] = None) -> None:
-        """Main entry point for the enhanced chat interface.
+        """Main entry point for the remote chat interface.
         
         Args:
             character_id: Optional character ID to load directly
         """
         try:
-            if not character_id:
-                self._display_welcome()
-                
-                # Character selection
-                character_id = await self._select_character()
-                if not character_id:
-                    self.console.print("[yellow]No character selected. Exiting.[/yellow]")
+            # Attempt to connect to remote server
+            connected_to_server = await self.connect_to_server()
+            
+            if not connected_to_server:
+                if self.fallback_to_local:
+                    self.console.print("[yellow]📱 Falling back to local mode...[/yellow]")
+                    await self._run_local_mode(character_id)
+                    return
+                else:
+                    self.console.print("[red]❌ Cannot connect to server and fallback disabled[/red]")
                     return
             
-            # Load character
-            character = await self._load_character(character_id)
-            if not character:
-                self.console.print("[red]Failed to load character. Exiting.[/red]")
-                return
-            
-            self.current_character = character
-            
-            # Log character session start
-            log_character_session_start(character_id, character.character_name)
-            
-            # Start appropriate interface mode
-            if self.vitals_only:
-                self.logger.info("Starting vitals-only mode")
-                await self._vitals_only_mode()
-            elif self.enable_vitals:
-                self.logger.info("Starting dual-pane conversation mode")
-                await self._dual_pane_conversation_loop()
-            else:
-                self.logger.info("Starting fallback conversation mode")
-                await self._conversation_loop()  # Fallback to original mode
+            # Run in remote mode
+            await self._run_remote_mode(character_id)
             
         except KeyboardInterrupt:
             self.logger.info("Chat interrupted by user (KeyboardInterrupt)")
@@ -132,54 +179,89 @@ class ChatInterface:
             self.logger.error(f"Unexpected error in chat interface: {e}", exc_info=True)
             self.debug_view.display_error(f"Unexpected error: {e}")
         finally:
-            if self.current_character:
+            # Cleanup
+            if self.remote_client and self.is_remote_mode:
+                await self.remote_client.disconnect()
+            elif self.current_character and not self.is_remote_mode:
                 self.logger.info("Auto-saving character state before exit")
                 await self._auto_save()
-                log_character_session_end(self.current_character.character_id, self.current_character.character_name)
+                if hasattr(self.current_character, 'character_id') and hasattr(self.current_character, 'character_name'):
+                    log_character_session_end(self.current_character.character_id, self.current_character.character_name)
     
-    async def _get_user_input_async(self) -> str:
-        """Get user input asynchronously (compatible with live display).
+    async def _run_remote_mode(self, character_id: Optional[str] = None) -> None:
+        """Run chat interface in remote mode."""
+        self.logger.info("Running in remote mode")
         
-        For now, this is a simple implementation. In a full implementation,
-        you might want to use a more sophisticated async input system.
-        
-        Returns:
-            User input string
-        """
-        # This is a simplified version - in production you might want to use
-        # libraries like aioconsole or implement proper async input handling
-        loop = asyncio.get_event_loop()
-        
-        # Show input prompt and get input
-        try:
-            user_input = await loop.run_in_executor(
-                None, 
-                lambda: input()  # Basic input for now
-            )
-            return user_input
-        except EOFError:
-            return "/exit"
-        except KeyboardInterrupt:
-            return "/exit"
-    
-    async def _confirm_exit_async(self) -> bool:
-        """Async version of exit confirmation.
-        
-        Returns:
-            True if user confirms exit, False otherwise
-        """
-        try:
-            loop = asyncio.get_event_loop()
+        if not character_id:
+            self._display_welcome()
             
-            # Ask for confirmation
-            self.console.print("\n[yellow]Are you sure you want to exit? (y/n)[/yellow]")
-            response = await loop.run_in_executor(
-                None,
-                lambda: input().lower().strip()
-            )
-            return response in ['y', 'yes', '1', 'true']
-        except (EOFError, KeyboardInterrupt):
-            return True
+            # Character selection
+            character_id = await self._select_character()
+            if not character_id:
+                self.console.print("[yellow]No character selected. Exiting.[/yellow]")
+                return
+        
+        # Initialize character on server
+        success = await self.remote_client.initialize_character(character_id)
+        if not success:
+            self.console.print("[red]Failed to initialize character on server. Exiting.[/red]")
+            return
+        
+        self.current_character = self.remote_client
+        
+        # Log character session start
+        log_character_session_start(character_id, self.remote_client.character_name or character_id)
+        
+        # Display character loaded message
+        character_info = self.remote_client.character_config or {}
+        self._display_character_loaded(character_id, character_info)
+        
+        # Start appropriate interface mode
+        if self.vitals_only:
+            self.logger.info("Starting remote vitals-only mode")
+            await self._vitals_only_mode()
+        elif self.enable_vitals:
+            self.logger.info("Starting remote dual-pane conversation mode")
+            await self._dual_pane_conversation_loop()
+        else:
+            self.logger.info("Starting remote fallback conversation mode")
+            await self._conversation_loop()
+    
+    async def _run_local_mode(self, character_id: Optional[str] = None) -> None:
+        """Run chat interface in local mode (fallback)."""
+        self.logger.info("Running in local mode")
+        self.is_remote_mode = False
+        
+        if not character_id:
+            self._display_welcome()
+            
+            # Character selection
+            character_id = await self._select_character()
+            if not character_id:
+                self.console.print("[yellow]No character selected. Exiting.[/yellow]")
+                return
+        
+        # Load character locally
+        character = await self._load_character_local(character_id)
+        if not character:
+            self.console.print("[red]Failed to load character. Exiting.[/red]")
+            return
+        
+        self.current_character = character
+        
+        # Log character session start
+        log_character_session_start(character_id, character.character_name)
+        
+        # Start appropriate interface mode
+        if self.vitals_only:
+            self.logger.info("Starting local vitals-only mode")
+            await self._vitals_only_mode()
+        elif self.enable_vitals:
+            self.logger.info("Starting local dual-pane conversation mode")
+            await self._dual_pane_conversation_loop()
+        else:
+            self.logger.info("Starting local fallback conversation mode")
+            await self._conversation_loop()
     
     def _display_welcome(self) -> None:
         """Display welcome message and instructions."""
@@ -188,9 +270,37 @@ class ChatInterface:
         welcome_text.append("This system allows you to have natural conversations with AI characters\n")
         welcome_text.append("that have distinct personalities, memories, and emotional states.\n\n")
         welcome_text.append("Each character remembers your interactions and develops over time.\n")
-        welcome_text.append("Type '/help' during conversation for available commands.")
+        welcome_text.append("Type '/help' during conversation for available commands.\n\n")
+        
+        if self.is_remote_mode:
+            welcome_text.append("🌐 Running in REMOTE mode - connected to character agent server\n", style="cyan")
+        else:
+            welcome_text.append("📱 Running in LOCAL mode\n", style="yellow")
         
         panel = Panel(welcome_text, title="[bold]Character Agent System[/bold]", border_style="green")
+        self.console.print(panel)
+    
+    def _display_character_loaded(self, character_id: str, character_info: Dict[str, Any]) -> None:
+        """Display character loaded message."""
+        intro_text = Text()
+        
+        if self.is_remote_mode:
+            intro_text.append("🌐 Connected to remote character: ", style="cyan")
+        else:
+            intro_text.append("📱 Loaded local character: ", style="yellow")
+        
+        name = character_info.get('name', character_id)
+        archetype = character_info.get('archetype', 'Unknown')
+        
+        intro_text.append(f"{name}", style="bold cyan")
+        intro_text.append(f" ({archetype})\n", style="yellow")
+        
+        if 'description' in character_info:
+            intro_text.append(f"\n{character_info['description']}\n", style="white")
+        
+        intro_text.append(f"\nType your message to start the conversation, or '/help' for commands.", style="dim")
+        
+        panel = Panel(intro_text, title="[bold]Character Ready[/bold]", border_style="cyan")
         self.console.print(panel)
     
     async def _select_character(self) -> Optional[str]:
@@ -249,8 +359,8 @@ class ChatInterface:
             self.debug_view.display_error(f"Error during character selection: {e}")
             return None
     
-    async def _load_character(self, character_id: str) -> Optional[CharacterAgent]:
-        """Load and initialize a character agent.
+    async def _load_character_local(self, character_id: str) -> Optional[CharacterAgent]:
+        """Load and initialize a character agent locally (fallback mode).
         
         Args:
             character_id: ID of character to load
@@ -259,7 +369,7 @@ class ChatInterface:
             Initialized CharacterAgent or None if failed
         """
         try:
-            self.console.print(f"[cyan]Loading character '{character_id}'...[/cyan]")
+            self.console.print(f"[cyan]Loading character '{character_id}' locally...[/cyan]")
             
             # Load character configuration
             config = self.character_loader.load_character(character_id)
@@ -273,22 +383,7 @@ class ChatInterface:
             # Initialize the character
             await character.initialize()
             
-            self.console.print(f"[green]Successfully loaded {config['name']}![/green]")
-            
-            # Display character introduction
-            intro_text = Text()
-            intro_text.append(f"You are now chatting with ", style="white")
-            intro_text.append(f"{config['name']}", style="bold cyan")
-            intro_text.append(f" ({config['archetype']})\n", style="yellow")
-            
-            if 'description' in config:
-                intro_text.append(f"\n{config['description']}\n", style="white")
-            
-            intro_text.append(f"\nType your message to start the conversation, or '/help' for commands.", style="dim")
-            
-            panel = Panel(intro_text, title="[bold]Character Loaded[/bold]", border_style="cyan")
-            self.console.print(panel)
-            
+            self.console.print(f"[green]Successfully loaded {config['name']} locally![/green]")
             return character
             
         except CharacterConfigurationError as e:
@@ -298,20 +393,47 @@ class ChatInterface:
             self.debug_view.display_error(f"Error loading character: {e}")
             return None
     
+    async def _get_character_state(self):
+        """Get character state from current character (remote or local)."""
+        if self.is_remote_mode and isinstance(self.current_character, CharacterAgentClient):
+            # For remote mode, we need to fetch vitals
+            try:
+                vitals = await self.current_character.get_character_vitals()
+                # Create a simple state-like object for compatibility
+                class RemoteState:
+                    def __init__(self, vitals_data):
+                        self.neurochemical_levels = vitals_data.get('neurochemical_state', {})
+                        self.agent_states = vitals_data.get('agent_states', {})
+                        self.relationship_state = vitals_data.get('relationship_state', {})
+                
+                return RemoteState(vitals)
+            except Exception as e:
+                self.logger.error(f"Error fetching remote character state: {e}")
+                return None
+        else:
+            # Local mode
+            return self.current_character.state if self.current_character else None
+    
     async def _dual_pane_conversation_loop(self) -> None:
         """Enhanced conversation loop with dual-pane layout and live vitals."""
         if not self.current_character:
             return
         
         # Setup character info in layout
-        self.layout_manager.update_character_info(
-            self.current_character.character_name,
-            self.current_character.character_config.get('archetype', 'Unknown')
-        )
+        if self.is_remote_mode:
+            character_name = self.remote_client.character_name or "Remote Character"
+            character_archetype = "Remote"
+        else:
+            character_name = self.current_character.character_name
+            character_archetype = self.current_character.character_config.get('archetype', 'Unknown')
+        
+        self.layout_manager.update_character_info(character_name, character_archetype)
         
         # Initial vitals display
-        vitals_panel = self.vitals_display.render_vitals(self.current_character.state)
-        self.layout_manager.update_vitals(vitals_panel)
+        state = await self._get_character_state()
+        if state:
+            vitals_panel = self.vitals_display.render_vitals(state)
+            self.layout_manager.update_vitals(vitals_panel)
         
         # Enable keyboard handling for scrolling
         keyboard_enabled = False
@@ -325,7 +447,7 @@ class ChatInterface:
         # Enable pane management
         pane_features_enabled = False
         if self.pane_manager.is_available():
-            # Set up callbacks
+            # Set up callbacks (reuse from local interface)
             self.pane_manager.set_pane_change_callback(self._on_pane_change)
             self.pane_manager.set_scroll_callback(self._on_pane_scroll)
             
@@ -400,25 +522,38 @@ class ChatInterface:
                             context={'debug_mode': self.debug_mode}
                         )
                         
+                        self.logger.debug(f"Received result from character: {result}")
+                        
                         # Add messages to history
                         self.messages.append({'speaker': 'You', 'message': user_input})
                         character_response = result.get('response_text', 'No response generated')
-                        self.logger.debug(f"Character response: {character_response[:100]}...")
+                        self.logger.debug(f"Extracted character response: {character_response}")
                         
-                        self.messages.append({
-                            'speaker': self.current_character.character_name,
-                            'message': character_response
-                        })
+                        if character_response and character_response != 'No response generated':
+                            self.messages.append({
+                                'speaker': character_name,
+                                'message': character_response
+                            })
+                            self.logger.debug(f"Added message to history, total messages: {len(self.messages)}")
+                        else:
+                            self.logger.error(f"Empty or missing response_text in result: {result}")
+                            self.messages.append({
+                                'speaker': character_name,
+                                'message': "Error: No response received from character"
+                            })
                         
                         # Update chat display
                         self.layout_manager.update_chat_history(self.messages)
+                        self.logger.debug("Updated chat history in layout manager")
                         
                         # Ensure latest messages are visible
                         self.layout_manager.ensure_latest_visible()
                         
                         # Update vitals display with new state
-                        vitals_panel = self.vitals_display.render_vitals(self.current_character.state)
-                        self.layout_manager.update_vitals(vitals_panel)
+                        state = await self._get_character_state()
+                        if state:
+                            vitals_panel = self.vitals_display.render_vitals(state)
+                            self.layout_manager.update_vitals(vitals_panel)
                         
                         # Update input prompt
                         self.layout_manager.update_input_prompt("Type your message...")
@@ -429,6 +564,7 @@ class ChatInterface:
                             pass  # Debug info will be shown in vitals panel
                         
                         live.refresh()
+                        self.logger.debug("Live display refreshed")
                         
                     except Exception as e:
                         self.logger.error(f"Error processing message: {e}", exc_info=True)
@@ -466,31 +602,35 @@ class ChatInterface:
         if not self.current_character:
             return
         
-        self.console.print("[bold cyan]Vitals-Only Mode - Monitoring Character State[/bold cyan]")
+        mode_name = "Remote" if self.is_remote_mode else "Local"
+        self.console.print(f"[bold cyan]{mode_name} Vitals-Only Mode - Monitoring Character State[/bold cyan]")
         self.console.print("Press Ctrl+C to exit\n")
         
         try:
             while not self._should_exit:
                 # Get current vitals
-                vitals_panel = self.vitals_display.render_detailed_vitals(self.current_character.state)
-                
-                # Clear screen and show vitals
-                self.console.clear()
-                self.console.print(vitals_panel)
+                state = await self._get_character_state()
+                if state:
+                    vitals_panel = self.vitals_display.render_detailed_vitals(state)
+                    
+                    # Clear screen and show vitals
+                    self.console.clear()
+                    self.console.print(vitals_panel)
                 
                 # Wait and refresh
                 await asyncio.sleep(1)  # Update every second in vitals-only mode
                 
         except KeyboardInterrupt:
             self.console.print("\n[yellow]Exiting vitals monitoring...[/yellow]")
-
+    
     async def _conversation_loop(self) -> None:
         """Original conversation loop (fallback mode)."""
         if not self.current_character:
             return
         
+        mode_name = "Remote" if self.is_remote_mode else "Local"
         self.console.print("\n" + "="*60)
-        self.console.print("[bold green]Conversation Started[/bold green]")
+        self.console.print(f"[bold green]{mode_name} Conversation Started[/bold green]")
         self.console.print("="*60 + "\n")
         
         while True:
@@ -517,9 +657,16 @@ class ChatInterface:
                         context={'debug_mode': self.debug_mode}
                     )
                     
+                    self.logger.debug(f"Fallback mode - received result: {result}")
+                    
                     # Display character response
-                    character_name = self.current_character.character_name
+                    if self.is_remote_mode:
+                        character_name = self.remote_client.character_name or "Remote Character"
+                    else:
+                        character_name = self.current_character.character_name
+                    
                     response = result.get('response_text', 'No response generated')
+                    self.logger.debug(f"Fallback mode - extracted response: {response}")
                     
                     self.debug_view.display_message(
                         character_name, 
@@ -552,54 +699,30 @@ class ChatInterface:
         Returns:
             'exit' if should exit conversation, None otherwise
         """
-        parts = command.strip().split(' ', 1)
-        cmd = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else ""
+        # For now, reuse the existing command handler
+        # In the future, we might want to implement remote-specific commands
+        return await self.command_handler.handle(command)
+    
+    async def _auto_save(self) -> None:
+        """Automatically save character state on exit."""
+        if not self.current_character:
+            return
         
         try:
-            if cmd == '/exit':
-                if Confirm.ask("[yellow]Are you sure you want to exit?[/yellow]"):
-                    return 'exit'
-            
-            elif cmd == '/debug':
-                self.debug_mode = not self.debug_mode
-                status = "ON" if self.debug_mode else "OFF"
-                self.console.print(f"[yellow]Debug mode: {status}[/yellow]")
-            
-            elif cmd == '/help':
-                self.debug_view.display_help()
-            
-            elif cmd == '/save':
-                await self._save_character_state(args)
-            
-            elif cmd == '/load':
-                await self._load_character_state(args)
-            
-            elif cmd == '/memory':
-                await self._search_memories(args or "recent experiences")
-            
-            elif cmd == '/reset':
-                await self._reset_character()
-            
-            elif cmd == '/status':
-                await self._display_character_status()
-            
+            if self.is_remote_mode:
+                # Save on server
+                filename = await self.current_character.save_character_state()
+                self.console.print(f"[dim]Character state auto-saved on server: {filename}[/dim]")
             else:
-                self.debug_view.display_error(f"Unknown command: {cmd}")
-                self.debug_view.display_help()
-        
+                # Save locally
+                await self._save_character_state_local()
+                self.console.print("[dim]Character state auto-saved locally[/dim]")
         except Exception as e:
-            self.debug_view.display_error(f"Error executing command {cmd}: {e}")
-        
-        return None
+            self.console.print(f"[yellow]Warning: Auto-save failed: {e}[/yellow]")
     
-    async def _save_character_state(self, filename: str = "") -> None:
-        """Save character state to file.
-        
-        Args:
-            filename: Optional filename. If empty, generates default name.
-        """
-        if not self.current_character:
+    async def _save_character_state_local(self, filename: str = "") -> None:
+        """Save character state locally (for local mode)."""
+        if not self.current_character or self.is_remote_mode:
             return
         
         try:
@@ -621,143 +744,6 @@ class ChatInterface:
             
         except Exception as e:
             self.debug_view.display_error(f"Failed to save character state: {e}")
-    
-    async def _load_character_state(self, filename: str = "") -> None:
-        """Load character state from file.
-        
-        Args:
-            filename: Optional filename. If empty, looks for autosave.
-        """
-        if not self.current_character:
-            return
-        
-        try:
-            if not filename:
-                filename = f"{self.current_character.character_id}_autosave.json"
-            
-            if not filename.endswith('.json'):
-                filename += '.json'
-            
-            filepath = self.save_dir / filename
-            
-            if not filepath.exists():
-                self.debug_view.display_error(f"Save file not found: {filepath}")
-                return
-            
-            # Load state
-            with open(filepath, 'r') as f:
-                state_data = json.load(f)
-            
-            await self.current_character.load_state_dict(state_data)
-            
-            self.debug_view.display_success(f"Character state loaded from {filepath}")
-            
-        except Exception as e:
-            self.debug_view.display_error(f"Failed to load character state: {e}")
-    
-    async def _search_memories(self, query: str) -> None:
-        """Search and display character memories.
-        
-        Args:
-            query: Search query for memories
-        """
-        if not self.current_character:
-            return
-        
-        try:
-            memories = await self.current_character.recall_past_conversations(
-                query=query,
-                limit=5
-            )
-            
-            if not memories:
-                self.console.print(f"[yellow]No memories found for query: '{query}'[/yellow]")
-                return
-            
-            self.console.print(f"\n[bold]Found {len(memories)} relevant memories for '{query}':[/bold]")
-            
-            for i, memory in enumerate(memories, 1):
-                timestamp = memory.get('timestamp', 'Unknown time')
-                description = memory.get('description', 'No description')
-                similarity = memory.get('similarity', 0.0)
-                
-                sim_color = "green" if similarity > 0.8 else "yellow" if similarity > 0.6 else "red"
-                
-                self.console.print(f"  {i}. [{sim_color}]{similarity:.3f}[/{sim_color}] ", end="")
-                self.console.print(f"[dim]{timestamp}[/dim]")
-                self.console.print(f"     {description[:200]}{'...' if len(description) > 200 else ''}")
-            
-        except Exception as e:
-            self.debug_view.display_error(f"Error searching memories: {e}")
-    
-    async def _reset_character(self) -> None:
-        """Reset character to initial state."""
-        if not self.current_character:
-            return
-        
-        if not Confirm.ask("[red]This will reset the character to initial state. Continue?[/red]"):
-            return
-        
-        try:
-            character_id = self.current_character.character_id
-            config = self.character_loader.load_character(character_id)
-            
-            # Reinitialize character
-            self.current_character = CharacterAgent(
-                character_config=config,
-                settings=self.settings
-            )
-            await self.current_character.initialize()
-            
-            self.debug_view.display_success("Character reset to initial state")
-            
-        except Exception as e:
-            self.debug_view.display_error(f"Error resetting character: {e}")
-    
-    async def _display_character_status(self) -> None:
-        """Display current character status."""
-        if not self.current_character:
-            return
-        
-        try:
-            state = self.current_character.state
-            
-            # Create status display
-            status_text = Text()
-            status_text.append(f"Character: ", style="bold")
-            status_text.append(f"{self.current_character.character_name}\n", style="cyan")
-            status_text.append(f"ID: ", style="bold")
-            status_text.append(f"{self.current_character.character_id}\n", style="white")
-            
-            # Mood info
-            if hasattr(state, 'agent_states') and 'mood' in state.agent_states:
-                mood = state.agent_states['mood']
-                status_text.append(f"Current Mood: ", style="bold")
-                status_text.append(f"{mood.get('current_state', 'unknown')} ", style="green")
-                status_text.append(f"(intensity: {mood.get('intensity', 0):.2f})\n", style="yellow")
-            
-            # Conversation count
-            if hasattr(state, 'conversation_history'):
-                history_len = len(state.conversation_history)
-                status_text.append(f"Messages Exchanged: ", style="bold")
-                status_text.append(f"{history_len}\n", style="white")
-            
-            panel = Panel(status_text, title="[bold]Character Status[/bold]", border_style="blue")
-            self.console.print(panel)
-            
-        except Exception as e:
-            self.debug_view.display_error(f"Error displaying status: {e}")
-    
-    async def _auto_save(self) -> None:
-        """Automatically save character state on exit."""
-        if not self.current_character:
-            return
-        
-        try:
-            await self._save_character_state()
-            self.console.print("[dim]Character state auto-saved[/dim]")
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Auto-save failed: {e}[/yellow]")
     
     def _on_pane_change(self, pane_type: PaneType) -> None:
         """Handle pane change events.
@@ -782,11 +768,6 @@ class ChatInterface:
         try:
             # Update conversation panel
             self.layout_manager._update_chat_history()
-            
-            # Update vitals panel if available
-            if self.current_character:
-                vitals_panel = self.vitals_display.render_vitals(self.current_character.state)
-                self.layout_manager.update_vitals(vitals_panel)
             
             # Update input panel
             self.layout_manager.update_input_prompt("Type your message...")
@@ -815,9 +796,26 @@ class ChatInterface:
 
 
 async def main():
-    """Main entry point for the chat interface."""
-    interface = ChatInterface()
-    await interface.run()
+    """Main entry point for the remote chat interface."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Remote Character Agent Chat Interface")
+    parser.add_argument('--server-url', default='ws://localhost:8765', help='Character agent server URL')
+    parser.add_argument('--no-fallback', action='store_true', help='Disable fallback to local mode')
+    parser.add_argument('--character', '-c', help='Character ID to load directly')
+    parser.add_argument('--vitals-only', '-v', action='store_true', help='Show only vitals monitoring')
+    parser.add_argument('--no-vitals', action='store_true', help='Disable vitals display')
+    
+    args = parser.parse_args()
+    
+    interface = RemoteChatInterface(
+        enable_vitals=not args.no_vitals,
+        vitals_only=args.vitals_only,
+        server_url=args.server_url,
+        fallback_to_local=not args.no_fallback
+    )
+    
+    await interface.run(character_id=args.character)
 
 
 if __name__ == "__main__":

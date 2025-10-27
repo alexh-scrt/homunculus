@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 try:
     from cli.chat_interface import ChatInterface
+    from cli.chat_interface_remote import RemoteChatInterface
     from config.settings import get_settings
     from config.character_loader import CharacterLoader
 except ImportError as e:
@@ -26,8 +27,10 @@ def setup_argument_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/run_chat.py                    # Interactive character selection
-  python scripts/run_chat.py --character ada_lovelace  # Chat with specific character
+  python scripts/run_chat.py                    # Interactive character selection (local)
+  python scripts/run_chat.py --character ada_lovelace  # Chat with specific character (local)
+  python scripts/run_chat.py --remote           # Connect to remote server
+  python scripts/run_chat.py --remote --character m_playful  # Connect to remote server with character
   python scripts/run_chat.py --debug            # Enable debug mode
   python scripts/run_chat.py --list-characters  # List available characters
         """
@@ -74,6 +77,25 @@ Examples:
         '--no-vitals',
         action='store_true',
         help='Disable vitals display (use original interface)'
+    )
+    
+    parser.add_argument(
+        '--remote', '-r',
+        action='store_true',
+        help='Connect to remote character agent server'
+    )
+    
+    parser.add_argument(
+        '--server-url',
+        type=str,
+        default='ws://localhost:8765',
+        help='Character agent server URL (default: ws://localhost:8765)'
+    )
+    
+    parser.add_argument(
+        '--no-fallback',
+        action='store_true',
+        help='Disable fallback to local mode if server unavailable'
     )
     
     return parser
@@ -193,9 +215,42 @@ async def main():
         # Determine character ID and interface mode
         character_id = args.activate or args.character
         use_enhanced = args.activate or args.vitals_only or not args.no_vitals
+        use_remote = args.remote
         
-        if character_id:
-            # Run with specific character
+        if use_remote:
+            # Use remote interface
+            print(f"🌐 Connecting to remote character agent server...")
+            print(f"   Server URL: {args.server_url}")
+            
+            interface = RemoteChatInterface(
+                enable_vitals=not args.no_vitals,
+                vitals_only=args.vitals_only,
+                server_url=args.server_url,
+                fallback_to_local=not args.no_fallback
+            )
+            interface.debug_mode = args.debug
+            
+            # Set custom save directory if provided
+            if args.save_dir:
+                interface.save_dir = Path(args.save_dir)
+                interface.save_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Display activation message for remote mode
+            if character_id:
+                if args.vitals_only:
+                    print(f"\n🔌 Connecting to monitor vitals for {character_id}...")
+                    print("Press Ctrl+C to exit\n")
+                else:
+                    print(f"\n🔌 Connecting to chat with {character_id}...")
+                    print("✨ Remote dual-pane interface with real-time vitals\n")
+            else:
+                print(f"\n🔌 Connecting to character agent server...")
+                print("📋 Character selection will be available after connection\n")
+            
+            await interface.run(character_id=character_id)
+            
+        elif character_id:
+            # Run with specific character (local mode)
             if use_enhanced:
                 # Use enhanced interface with vitals
                 interface = ChatInterface(
@@ -216,10 +271,10 @@ async def main():
                     name = info.get('name', character_id)
                     
                     if args.vitals_only:
-                        print(f"\nActivating vitals monitoring for {name}...")
+                        print(f"\n📱 Activating local vitals monitoring for {name}...")
                         print("Press Ctrl+C to exit\n")
                     else:
-                        print(f"\nActivating enhanced chat with {name}...")
+                        print(f"\n📱 Activating local enhanced chat with {name}...")
                         print("✨ Dual-pane interface with real-time vitals\n")
                 except:
                     pass
@@ -229,7 +284,7 @@ async def main():
                 # Use original interface
                 await run_with_specific_character(character_id, args.debug)
         else:
-            # Run full interactive interface
+            # Run full interactive interface (local mode)
             if use_enhanced and not args.no_vitals:
                 # Enhanced interface with character selection
                 interface = ChatInterface(enable_vitals=True, vitals_only=False)
@@ -244,6 +299,7 @@ async def main():
                 interface.save_dir = Path(args.save_dir)
                 interface.save_dir.mkdir(parents=True, exist_ok=True)
             
+            print("📱 Starting local character agent interface...")
             await interface.run()
     
     except KeyboardInterrupt:

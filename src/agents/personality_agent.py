@@ -49,7 +49,7 @@ class PersonalityAgent(BaseAgent):
         openness = self.big_five.get('openness', 0.5)
         self.web_search_threshold = 0.2 + (openness * 0.6)  # Higher openness = more likely to search
     
-    def consult(
+    async def consult(
         self,
         context: Dict[str, Any],
         character_state: CharacterState,
@@ -70,7 +70,7 @@ class PersonalityAgent(BaseAgent):
         )
         
         # Generate personality-aligned perspective
-        response = self._call_llm(
+        response = await self._call_llm(
             prompt=prompt,
             temperature=0.6,  # Moderate creativity while staying consistent
             max_tokens=250,

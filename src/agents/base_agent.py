@@ -162,7 +162,7 @@ class BaseAgent(ABC):
             self.logger.error(f"Web search failed in {self.agent_type} agent: {e}")
             return []
     
-    def _call_llm(
+    async def _call_llm(
         self,
         prompt: str,
         temperature: float = 0.7,
@@ -188,7 +188,7 @@ class BaseAgent(ABC):
             
             if use_web_search and self.web_search_enabled:
                 # Use LLM with web search capability
-                result = self.llm_client.generate_with_web_search(
+                result = await self.llm_client.generate_with_web_search(
                     prompt=prompt,
                     enable_search=True,
                     max_search_results=self.max_search_results,
@@ -202,7 +202,7 @@ class BaseAgent(ABC):
                 return result['response']
             else:
                 # Use regular LLM generation
-                return self.llm_client.generate(
+                return await self.llm_client.generate(
                     prompt=prompt,
                     temperature=temperature,
                     max_tokens=max_tokens

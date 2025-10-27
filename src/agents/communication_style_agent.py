@@ -48,7 +48,7 @@ class CommunicationStyleAgent(BaseAgent):
         self.body_language = style_config.get('body_language', 'neutral')
         self.quirks = style_config.get('quirks', [])
     
-    def consult(
+    async def consult(
         self,
         context: Dict[str, Any],
         character_state: CharacterState,
@@ -79,7 +79,7 @@ class CommunicationStyleAgent(BaseAgent):
         )
         
         # Generate style guidance
-        response = self._call_llm(
+        response = await self._call_llm(
             prompt=prompt,
             temperature=0.8,  # Higher creativity for natural style variation
             max_tokens=200,

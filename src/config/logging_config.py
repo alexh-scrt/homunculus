@@ -85,9 +85,14 @@ def setup_logging(
     logging.getLogger('chromadb').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('requests').setLevel(logging.WARNING)
-    logging.getLogger('httpx').setLevel(logging.INFO)
-    logging.getLogger('neo4j').setLevel(logging.INFO)
-    logging.getLogger('ollama').setLevel(logging.INFO)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('neo4j').setLevel(logging.ERROR)
+    logging.getLogger('ollama').setLevel(logging.WARNING)
+    
+    # Additional noisy loggers
+    logging.getLogger('integration.agent_orchestrator').setLevel(logging.ERROR)
+    logging.getLogger('websockets').setLevel(logging.WARNING)
+    logging.getLogger('asyncio').setLevel(logging.WARNING)
     
     # Log initial startup message
     logger = logging.getLogger(__name__)

@@ -2,6 +2,7 @@
 """Test script for Ollama client with Tavily tool integration."""
 
 import sys
+import asyncio
 from pathlib import Path
 
 # Add src to path
@@ -10,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from llm.ollama_client import OllamaClient
 from config.settings import get_settings
 
-def test_ollama_tools():
+async def test_ollama_tools():
     """Test the Ollama client with tools."""
     settings = get_settings()
     
@@ -30,7 +31,7 @@ def test_ollama_tools():
     # Test 2: Basic generation
     print("\n2. Testing basic text generation...")
     try:
-        response = client.generate("Hello, how are you?", temperature=0.7)
+        response = await client.generate("Hello, how are you?", temperature=0.7)
         print(f"   ✅ Basic generation works: {response[:100]}...")
     except Exception as e:
         print(f"   ❌ Basic generation failed: {e}")
@@ -46,7 +47,7 @@ def test_ollama_tools():
     print("\n4. Testing with search-triggering prompt...")
     try:
         search_prompt = "What are the latest developments in AI technology today?"
-        response = client.generate(search_prompt, temperature=0.7)
+        response = await client.generate(search_prompt, temperature=0.7)
         print(f"   ✅ Search prompt handled: {response[:150]}...")
         
         tool_info = client.get_tool_usage_info()
@@ -67,7 +68,7 @@ def test_ollama_tools():
             'task': 'provide information',
             'topic': 'renewable energy'
         }
-        response = client.generate_with_template(template, variables, temperature=0.7)
+        response = await client.generate_with_template(template, variables, temperature=0.7)
         print(f"   ✅ Template generation works: {response[:100]}...")
     except Exception as e:
         print(f"   ❌ Template generation failed: {e}")
@@ -86,4 +87,4 @@ def test_ollama_tools():
     print(f"   - Tavily Ready: {status['tavily_configured']}")
 
 if __name__ == "__main__":
-    test_ollama_tools()
+    asyncio.run(test_ollama_tools())

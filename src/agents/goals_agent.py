@@ -42,7 +42,7 @@ class GoalsAgent(BaseAgent):
         self.web_search_enabled = True
         self.web_search_threshold = 0.4  # Moderately likely to search for goal-related info
     
-    def consult(
+    async def consult(
         self,
         context: Dict[str, Any],
         character_state: CharacterState,
@@ -76,7 +76,7 @@ class GoalsAgent(BaseAgent):
         )
         
         # Generate goal-oriented guidance
-        response = self._call_llm(
+        response = await self._call_llm(
             prompt=prompt,
             temperature=0.6,  # Balanced creativity and strategic focus
             max_tokens=220,

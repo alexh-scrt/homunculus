@@ -578,6 +578,342 @@ class KnowledgeGraphModule:
             self.logger.error(f"Failed to get knowledge stats: {e}")
             return {"error": str(e)}
     
+    async def search_cached_web_knowledge(
+        self,
+        query: str,
+        max_age_hours: int = 24,
+        min_confidence: float = 0.6,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for cached web search knowledge that might answer the query.
+        
+        Args:
+            query: The search query
+            max_age_hours: Maximum age of cached results in hours
+            min_confidence: Minimum confidence level for results
+            limit: Maximum number of results to return
+            
+        Returns:
+            List of relevant cached web search results
+        """
+        if not self.driver:
+            return []
+        
+        try:
+            # Calculate cutoff timestamp
+            cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+            cutoff_iso = cutoff_time.isoformat()
+            
+            with self.driver.session() as session:
+                query_cypher = """
+                MATCH (f:Fact)-[:SOURCED_FROM]->(w:WebSearchResult)
+                WHERE f.character_id = $character_id
+                AND f.confidence >= $min_confidence
+                AND w.timestamp >= $cutoff_time
+                AND (
+                    toLower(w.query) CONTAINS toLower($query)
+                    OR toLower(f.text) CONTAINS toLower($query)
+                    OR toLower(w.title) CONTAINS toLower($query)
+                    OR toLower(w.snippet) CONTAINS toLower($query)
+                )
+                RETURN f.fact_id as fact_id, f.text as fact_text, f.confidence as confidence,
+                       w.query as original_query, w.title as title, w.snippet as snippet,
+                       w.url as url, w.timestamp as timestamp
+                ORDER BY f.confidence DESC, w.timestamp DESC
+                LIMIT $limit
+                """
+                
+                result = session.run(query_cypher, {
+                    "character_id": self.character_id,
+                    "query": query,
+                    "min_confidence": min_confidence,
+                    "cutoff_time": cutoff_iso,
+                    "limit": limit
+                })
+                
+                cached_results = []
+                for record in result:
+                    cached_results.append({
+                        "fact_id": record["fact_id"],
+                        "fact_text": record["fact_text"],
+                        "confidence": record["confidence"],
+                        "original_query": record["original_query"],
+                        "title": record["title"],
+                        "snippet": record["snippet"],
+                        "url": record["url"],
+                        "timestamp": record["timestamp"]
+                    })
+                
+                if cached_results:
+                    self.logger.info(f"Found {len(cached_results)} cached web knowledge results for query: {query}")
+                
+                return cached_results
+                
+        except Exception as e:
+            self.logger.error(f"Error searching cached web knowledge: {e}")
+            return []
+    
+    async def store_web_search_knowledge(
+        self,
+        query: str,
+        answer: str,
+        source_urls: List[str],
+        query_type: str = "static",
+        domain: str = "general",
+        expiry_hours: int = 8760,
+        confidence: float = 0.8
+    ) -> str:
+        """
+        Store web search knowledge with enhanced metadata for caching.
+        
+        Args:
+            query: The search query
+            answer: The extracted answer/knowledge
+            source_urls: URLs that provided this information
+            query_type: Type of query ('static', 'time_sensitive', 'current')
+            domain: Domain category ('weather', 'sports', 'facts', etc.)
+            expiry_hours: Hours until this knowledge expires
+            confidence: Confidence in this knowledge (0-1)
+            
+        Returns:
+            Fact ID if successful, empty string if failed
+        """
+        try:
+            # Create a comprehensive fact text
+            fact_text = f"Query: '{query}' Answer: {answer}"
+            
+            # Create the fact with enhanced web search context
+            web_search_context = {
+                "query": query,
+                "query_type": query_type,
+                "domain": domain,
+                "expiry_hours": expiry_hours,
+                "results": [{"url": url, "title": "", "content": answer} for url in source_urls]
+            }
+            
+            fact_id = await self.store_fact(
+                fact_text=fact_text,
+                source="web_search_cache",
+                confidence=confidence,
+                domain=domain,
+                related_concepts=await extract_concepts_from_text(f"{query} {answer}"),
+                web_search_context=web_search_context
+            )
+            
+            if fact_id:
+                # Also create a special cached knowledge node for faster retrieval
+                await self._create_cached_knowledge_node(
+                    fact_id, query, answer, query_type, domain, expiry_hours, source_urls
+                )
+            
+            return fact_id
+            
+        except Exception as e:
+            self.logger.error(f"Error storing web search knowledge: {e}")
+            return ""
+    
+    async def _create_cached_knowledge_node(
+        self,
+        fact_id: str,
+        query: str,
+        answer: str,
+        query_type: str,
+        domain: str,
+        expiry_hours: int,
+        source_urls: List[str]
+    ):
+        """Create a specialized cached knowledge node for faster retrieval."""
+        if not self.driver:
+            return
+        
+        try:
+            with self.driver.session() as session:
+                cache_query = """
+                MATCH (f:Fact {fact_id: $fact_id})
+                CREATE (c:CachedKnowledge {
+                    cache_id: $cache_id,
+                    character_id: $character_id,
+                    query: $query,
+                    answer: $answer,
+                    query_type: $query_type,
+                    domain: $domain,
+                    created_at: $timestamp,
+                    expires_at: $expires_at,
+                    source_urls: $source_urls,
+                    access_count: 0,
+                    last_accessed: null
+                })
+                CREATE (f)-[:CACHED_AS]->(c)
+                """
+                
+                cache_id = f"cache_{fact_id}_{int(datetime.now().timestamp())}"
+                expires_at = (datetime.now() + timedelta(hours=expiry_hours)).isoformat()
+                
+                session.run(cache_query, {
+                    "fact_id": fact_id,
+                    "cache_id": cache_id,
+                    "character_id": self.character_id,
+                    "query": query,
+                    "answer": answer,
+                    "query_type": query_type,
+                    "domain": domain,
+                    "timestamp": datetime.now().isoformat(),
+                    "expires_at": expires_at,
+                    "source_urls": source_urls
+                })
+                
+                self.logger.debug(f"Created cached knowledge node: {cache_id}")
+                
+        except Exception as e:
+            self.logger.error(f"Error creating cached knowledge node: {e}")
+    
+    async def find_similar_cached_queries(
+        self,
+        query: str,
+        similarity_threshold: float = 0.7,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Find cached queries that are similar to the given query.
+        
+        This uses simple text similarity - in production you might want
+        to use semantic similarity with embeddings.
+        
+        Args:
+            query: The query to find similar cached queries for
+            similarity_threshold: Minimum similarity score (0-1)
+            limit: Maximum number of results
+            
+        Returns:
+            List of similar cached queries with their answers
+        """
+        if not self.driver:
+            return []
+        
+        try:
+            with self.driver.session() as session:
+                # Get all non-expired cached knowledge
+                similarity_query = """
+                MATCH (c:CachedKnowledge)
+                WHERE c.character_id = $character_id
+                AND datetime(c.expires_at) > datetime()
+                RETURN c.cache_id as cache_id, c.query as cached_query, 
+                       c.answer as answer, c.domain as domain,
+                       c.query_type as query_type, c.created_at as created_at,
+                       c.access_count as access_count
+                """
+                
+                result = session.run(similarity_query, {
+                    "character_id": self.character_id
+                })
+                
+                similar_queries = []
+                query_lower = query.lower()
+                
+                for record in result:
+                    cached_query = record["cached_query"]
+                    cached_query_lower = cached_query.lower()
+                    
+                    # Simple similarity calculation
+                    # This could be improved with proper NLP similarity measures
+                    similarity = self._calculate_text_similarity(query_lower, cached_query_lower)
+                    
+                    if similarity >= similarity_threshold:
+                        similar_queries.append({
+                            "cache_id": record["cache_id"],
+                            "cached_query": cached_query,
+                            "answer": record["answer"],
+                            "domain": record["domain"],
+                            "query_type": record["query_type"],
+                            "created_at": record["created_at"],
+                            "access_count": record["access_count"],
+                            "similarity": similarity
+                        })
+                
+                # Sort by similarity and limit results
+                similar_queries.sort(key=lambda x: x["similarity"], reverse=True)
+                return similar_queries[:limit]
+                
+        except Exception as e:
+            self.logger.error(f"Error finding similar cached queries: {e}")
+            return []
+    
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate simple text similarity between two strings.
+        
+        This is a basic implementation using word overlap.
+        In production, you might want to use more sophisticated methods.
+        """
+        words1 = set(text1.split())
+        words2 = set(text2.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union) if union else 0.0
+    
+    async def update_cache_access(self, cache_id: str):
+        """Update access statistics for a cached knowledge item."""
+        if not self.driver:
+            return
+        
+        try:
+            with self.driver.session() as session:
+                update_query = """
+                MATCH (c:CachedKnowledge {cache_id: $cache_id})
+                SET c.access_count = coalesce(c.access_count, 0) + 1,
+                    c.last_accessed = $timestamp
+                """
+                
+                session.run(update_query, {
+                    "cache_id": cache_id,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+        except Exception as e:
+            self.logger.error(f"Error updating cache access: {e}")
+    
+    async def clean_expired_cache(self) -> int:
+        """
+        Remove expired cached knowledge entries.
+        
+        Returns:
+            Number of entries removed
+        """
+        if not self.driver:
+            return 0
+        
+        try:
+            with self.driver.session() as session:
+                # Delete expired cached knowledge nodes
+                delete_query = """
+                MATCH (c:CachedKnowledge)
+                WHERE c.character_id = $character_id
+                AND datetime(c.expires_at) <= datetime()
+                DETACH DELETE c
+                RETURN count(c) as deleted_count
+                """
+                
+                result = session.run(delete_query, {
+                    "character_id": self.character_id
+                })
+                
+                deleted_count = result.single()["deleted_count"]
+                
+                if deleted_count > 0:
+                    self.logger.info(f"Cleaned {deleted_count} expired cache entries for character {self.character_id}")
+                
+                return deleted_count
+                
+        except Exception as e:
+            self.logger.error(f"Error cleaning expired cache: {e}")
+            return 0
+
     def close(self):
         """Close the Neo4j driver."""
         if self.driver:

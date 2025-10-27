@@ -82,7 +82,7 @@ class MemoryAgent(BaseAgent):
         )
         
         # Generate memory-informed guidance
-        response = self._call_llm(
+        response = await self._call_llm(
             prompt=prompt,
             temperature=0.6,  # Balanced between consistency and insight
             max_tokens=250,

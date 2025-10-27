@@ -46,7 +46,7 @@ class MoodAgent(BaseAgent):
         self.emotional_volatility = mood_config.get('emotional_volatility', 0.5)
         self.default_state = mood_config.get('default_state', 'neutral')
     
-    def consult(
+    async def consult(
         self,
         context: Dict[str, Any],
         character_state: CharacterState,
@@ -79,7 +79,7 @@ class MoodAgent(BaseAgent):
         )
         
         # Generate mood-based guidance
-        response = self._call_llm(
+        response = await self._call_llm(
             prompt=prompt,
             temperature=0.7,  # Moderate variability for emotional nuance
             max_tokens=200,

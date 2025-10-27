@@ -83,7 +83,8 @@ class CharacterAgent:
             self.llm_client = OllamaClient(
                 base_url=self.settings.ollama_base_url,
                 model=self.settings.ollama_model,
-                tavily_api_key=self.settings.tavily_api_key
+                tavily_api_key=self.settings.tavily_api_key,
+                character_id=character_id
             )
         else:
             self.llm_client = llm_client
@@ -273,7 +274,7 @@ class CharacterAgent:
             
             # Step 3: Response Generation
             self.logger.debug("Starting response generation")
-            response_result = self.response_generator.generate_response(
+            response_result = await self.response_generator.generate_response(
                 orchestration_result=orchestration_result,
                 cognitive_result=cognitive_result,
                 character_state=self.character_state,

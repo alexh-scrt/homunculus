@@ -29,6 +29,7 @@ class CommandHandler:
         '/clear': 'Clear conversation history',
         '/scroll': 'Scroll conversation (up/down/top/bottom)',
         '/autoscroll': 'Toggle auto-scroll mode',
+        '/pane': 'Switch active pane or show status',
         '/status': 'Show character status',
         '/exit': 'Exit chat'
     }
@@ -69,6 +70,7 @@ class CommandHandler:
             '/clear': self._handle_clear,
             '/scroll': self._handle_scroll,
             '/autoscroll': self._handle_autoscroll,
+            '/pane': self._handle_pane,
             '/status': self._handle_status,
             '/exit': self._handle_exit
         }
@@ -494,6 +496,55 @@ class CommandHandler:
             self.console.print("[dim]New messages will automatically scroll to bottom[/dim]")
         else:
             self.console.print("[dim]Manual scrolling mode - use /scroll commands to navigate[/dim]")
+        
+        return None
+    
+    async def _handle_pane(self, args: str) -> None:
+        """Handle pane switching and status commands."""
+        if not hasattr(self.interface, 'pane_manager'):
+            self.console.print("[red]Pane management not available in this interface[/red]")
+            return None
+        
+        pane_manager = self.interface.pane_manager
+        direction = args.strip().lower()
+        
+        if direction in ['next', 'n', '']:
+            # Cycle to next pane
+            old_pane = pane_manager.get_active_pane()
+            new_pane = pane_manager.cycle_active_pane(1)
+            self.console.print(f"[green]Switched from {old_pane.value} to {new_pane.value} pane[/green]")
+        
+        elif direction in ['prev', 'previous', 'p']:
+            # Cycle to previous pane
+            old_pane = pane_manager.get_active_pane()
+            new_pane = pane_manager.cycle_active_pane(-1)
+            self.console.print(f"[green]Switched from {old_pane.value} to {new_pane.value} pane[/green]")
+        
+        elif direction in ['conversation', 'conv', 'c']:
+            from cli.pane_manager import PaneType
+            if pane_manager.set_active_pane(PaneType.CONVERSATION):
+                self.console.print("[green]Switched to conversation pane[/green]")
+        
+        elif direction in ['vitals', 'v']:
+            from cli.pane_manager import PaneType
+            if pane_manager.set_active_pane(PaneType.VITALS):
+                self.console.print("[green]Switched to vitals pane[/green]")
+        
+        elif direction in ['input', 'i']:
+            from cli.pane_manager import PaneType
+            if pane_manager.set_active_pane(PaneType.INPUT):
+                self.console.print("[green]Switched to input pane[/green]")
+        
+        elif direction in ['status', 's']:
+            # Show pane status
+            status = pane_manager.get_status_info()
+            active_pane = pane_manager.get_active_pane()
+            self.console.print(f"[cyan]Active pane: {active_pane.value}[/cyan]")
+            if status:
+                self.console.print(f"[dim]{status}[/dim]")
+        
+        else:
+            self.console.print("[red]Invalid pane command. Use: next/prev/conversation/vitals/input/status[/red]")
         
         return None
     

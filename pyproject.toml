@@ -28,6 +28,11 @@ PyYAML = "^6.0.1"
 rich = "^13.7.0"
 typer = "^0.9.0"
 click = "^8.1.7"
+keyboard = "^0.13.5"
+pynput = "^1.8.1"
+
+# WebSocket support
+websockets = "^12.0"
 
 # Utilities
 python-dotenv = "^1.0.0"

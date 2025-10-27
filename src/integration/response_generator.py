@@ -37,7 +37,7 @@ class ResponseGenerator:
         
         self.logger.info(f"ResponseGenerator initialized for character {character_id}")
     
-    def generate_response(
+    async def generate_response(
         self,
         orchestration_result: Dict[str, Any],
         cognitive_result: Dict[str, Any],
@@ -77,7 +77,7 @@ class ResponseGenerator:
             )
             
             # Generate response using LLM
-            raw_response = self.llm_client.generate(
+            raw_response = await self.llm_client.generate(
                 prompt=prompt,
                 temperature=generation_params['temperature'],
                 max_tokens=generation_params['max_tokens']

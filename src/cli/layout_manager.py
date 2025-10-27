@@ -25,6 +25,9 @@ class LayoutManager:
         self.terminal_size = self._get_terminal_size()
         self.scroll_offset = 0  # Number of messages to scroll up from bottom
         self.auto_scroll = True  # Whether to auto-scroll to bottom on new messages
+        self.show_scroll_bar = True  # Whether to show scroll bar in conversation
+        self.pane_manager = None  # Will be set by chat interface
+        self.refresh_callback = None  # Callback to refresh live display
         self._setup_layout()
     
     def _get_terminal_size(self) -> Tuple[int, int]:
@@ -118,6 +121,9 @@ class LayoutManager:
         # Auto-scroll to bottom if new messages were added and auto-scroll is enabled
         if self.auto_scroll and len(messages) > old_count:
             self.scroll_offset = 0
+            # Force refresh to ensure scroll position is updated
+            self._update_chat_history()
+            return
         
         self._update_chat_history()
     
@@ -181,6 +187,7 @@ class LayoutManager:
             self.scroll_offset = min(self.scroll_offset + lines, max_scroll)
             self.auto_scroll = False  # Disable auto-scroll when manually scrolling
             self._update_chat_history()
+            self._trigger_refresh()  # Force refresh of live display
             return self.scroll_offset != old_offset
         return False
     
@@ -202,6 +209,7 @@ class LayoutManager:
                 self.auto_scroll = True
                 
             self._update_chat_history()
+            self._trigger_refresh()  # Force refresh of live display
             return self.scroll_offset != old_offset
         return False
     
@@ -212,12 +220,56 @@ class LayoutManager:
         self.scroll_offset = max_scroll
         self.auto_scroll = False
         self._update_chat_history()
+        self._trigger_refresh()
     
     def scroll_to_bottom(self) -> None:
         """Scroll to the bottom of the chat history."""
         self.scroll_offset = 0
         self.auto_scroll = True
         self._update_chat_history()
+        self._trigger_refresh()
+    
+    def ensure_latest_visible(self) -> None:
+        """Ensure the latest messages are visible - force scroll if needed."""
+        if self.auto_scroll:
+            self.scroll_offset = 0
+            self._update_chat_history()
+    
+    def set_pane_manager(self, pane_manager) -> None:
+        """Set the pane manager for active pane integration.
+        
+        Args:
+            pane_manager: PaneManager instance
+        """
+        self.pane_manager = pane_manager
+        if pane_manager:
+            pane_manager.update_pane_positions(self.terminal_size)
+    
+    def set_refresh_callback(self, callback) -> None:
+        """Set callback function to refresh live display.
+        
+        Args:
+            callback: Function to call when display needs refresh
+        """
+        self.refresh_callback = callback
+    
+    def _trigger_refresh(self) -> None:
+        """Trigger a refresh of the live display if callback is set."""
+        if self.refresh_callback:
+            try:
+                self.refresh_callback()
+            except Exception as e:
+                pass  # Ignore refresh errors
+    
+    def toggle_scroll_bar(self) -> bool:
+        """Toggle scroll bar visibility.
+        
+        Returns:
+            New scroll bar visibility state
+        """
+        self.show_scroll_bar = not self.show_scroll_bar
+        self._update_chat_history()
+        return self.show_scroll_bar
     
     def toggle_auto_scroll(self) -> bool:
         """Toggle auto-scroll mode.
@@ -268,6 +320,58 @@ class LayoutManager:
         
         # Cap at reasonable limits
         return min(max_messages, 20)
+    
+    def _create_scroll_indicators(self, scroll_info: Dict[str, Any]) -> str:
+        """Create scroll position indicators.
+        
+        Args:
+            scroll_info: Scroll information dictionary
+            
+        Returns:
+            String with scroll indicators
+        """
+        indicators = []
+        
+        # Position indicator
+        total = scroll_info['total_messages']
+        visible = scroll_info['visible_messages']
+        offset = scroll_info['scroll_offset']
+        
+        # Calculate visible range
+        if total <= visible:
+            visible_start = 1
+            visible_end = total
+        else:
+            visible_end = total - offset
+            visible_start = max(1, visible_end - visible + 1)
+        
+        indicators.append(f"Messages {visible_start}-{visible_end} of {total}")
+        
+        # Scroll bar
+        if total > visible:
+            bar_length = 10
+            visible_ratio = visible / total
+            scroll_ratio = offset / (total - visible) if total > visible else 0
+            
+            bar_height = max(1, int(bar_length * visible_ratio))
+            bar_position = int((bar_length - bar_height) * scroll_ratio)
+            
+            bar = ""
+            for i in range(bar_length):
+                if bar_position <= i < bar_position + bar_height:
+                    bar += "█"  # Solid block for thumb
+                else:
+                    bar += "░"  # Light block for track
+            
+            indicators.append(f"[{bar}]")
+        
+        # Direction indicators
+        if not scroll_info['at_bottom']:
+            indicators.append("↓ More below")
+        if not scroll_info['at_top']:
+            indicators.append("↑ More above")
+        
+        return " | ".join(indicators)
     
     def _wrap_message_text(self, text: str, max_width: int) -> str:
         """Wrap message text to fit within available width.
@@ -341,9 +445,11 @@ class LayoutManager:
             chat_ratio, vitals_ratio, _, _ = self._calculate_layout_ratios()
             chat_width = int(width * chat_ratio / 100)
             
-            # Account for panel borders and padding (roughly 6 characters)
-            max_content_width = max(30, chat_width - 15)  # Leave space for "Speaker: " prefix
+            # Account for panel borders, padding, and scroll bar
+            scroll_bar_width = 2 if self.show_scroll_bar and total_messages > max_messages else 0
+            max_content_width = max(30, chat_width - 15 - scroll_bar_width)  # Leave space for "Speaker: " prefix and scroll bar
             
+            # Build message content and scroll bar
             for i, msg in enumerate(visible_messages):
                 speaker = msg.get('speaker', 'Unknown')
                 message = msg.get('message', '')
@@ -359,19 +465,34 @@ class LayoutManager:
                     speaker_style = "bold green"
                     message_style = "white"
                 
-                # Add speaker name
+                # Add speaker name and message
                 content.append(f"{speaker}: ", style=speaker_style)
                 content.append(f"{wrapped_message}", style=message_style)
                 
-                # Add spacing between messages
+                # Add spacing between messages (except last)
                 if i < len(visible_messages) - 1:
                     content.append("\n\n")
             
-            # Create title with scroll information
+            # Add scroll bar as a separate visual element if needed
+            if self.show_scroll_bar and total_messages > max_messages:
+                scroll_info = self.get_scroll_info()
+                scroll_indicators = self._create_scroll_indicators(scroll_info)
+                if scroll_indicators:
+                    content.append("\n")
+                    content.append(scroll_indicators, style="dim cyan")
+            
+            # Create title with scroll information and active pane indicator
             scroll_info = self.get_scroll_info()
             if total_messages > max_messages:
                 title_parts = []
-                title_parts.append("[bold]Conversation[/bold]")
+                
+                # Base title with pane manager integration
+                if self.pane_manager:
+                    from cli.pane_manager import PaneType
+                    base_title = self.pane_manager.get_pane_title(PaneType.CONVERSATION, "Conversation")
+                else:
+                    base_title = "[bold]Conversation[/bold]"
+                title_parts.append(base_title)
                 
                 # Show which messages are visible
                 visible_start = start_index + 1
@@ -388,12 +509,23 @@ class LayoutManager:
                     
                 title = " ".join(title_parts)
             else:
-                title = "[bold]Conversation[/bold]"
+                if self.pane_manager:
+                    from cli.pane_manager import PaneType
+                    title = self.pane_manager.get_pane_title(PaneType.CONVERSATION, "Conversation")
+                else:
+                    title = "[bold]Conversation[/bold]"
+            
+            # Get border style from pane manager
+            if self.pane_manager:
+                from cli.pane_manager import PaneType
+                border_style = self.pane_manager.get_pane_border_style(PaneType.CONVERSATION)
+            else:
+                border_style = "green"
             
             panel = Panel(
                 content,
                 title=title,
-                border_style="green",
+                border_style=border_style,
                 padding=(1, 2)
             )
         
@@ -405,7 +537,27 @@ class LayoutManager:
         Args:
             vitals_panel: Rich Panel with vitals information
         """
-        self.layout["vitals"].update(vitals_panel)
+        # Update panel with pane manager integration if available
+        if self.pane_manager and vitals_panel:
+            from cli.pane_manager import PaneType
+            
+            # Get the original content and title
+            original_title = vitals_panel.title or "Vitals"
+            
+            # Create new panel with pane manager styling
+            new_title = self.pane_manager.get_pane_title(PaneType.VITALS, original_title)
+            border_style = self.pane_manager.get_pane_border_style(PaneType.VITALS)
+            
+            # Create updated panel
+            updated_panel = Panel(
+                vitals_panel.renderable,
+                title=new_title,
+                border_style=border_style,
+                padding=vitals_panel.padding
+            )
+            self.layout["vitals"].update(updated_panel)
+        else:
+            self.layout["vitals"].update(vitals_panel)
     
     def update_input_prompt(self, prompt_text: str) -> None:
         """Update input prompt area.
@@ -428,10 +580,27 @@ class LayoutManager:
         content.append("/help /debug /memory /goals /vitals /save /exit", style="dim cyan")
         content.append(" | ", style="dim")
         content.append("Scroll: ↑/↓ PgUp/PgDn Home/End", style="dim yellow")
+        content.append(" | ", style="dim")
+        content.append("/scroll up/down/top/bottom", style="dim green")
+        
+        # Add pane navigation help if available
+        if self.pane_manager and self.pane_manager.is_available():
+            content.append(" | ", style="dim")
+            content.append("Tab: Switch panes", style="dim magenta")
+        
+        # Get title and border style from pane manager
+        if self.pane_manager:
+            from cli.pane_manager import PaneType
+            title = self.pane_manager.get_pane_title(PaneType.INPUT, "Input")
+            border_style = self.pane_manager.get_pane_border_style(PaneType.INPUT)
+        else:
+            title = "Input"
+            border_style = "blue"
         
         panel = Panel(
             content,
-            border_style="blue",
+            title=title,
+            border_style=border_style,
             padding=(0, 1)
         )
         
