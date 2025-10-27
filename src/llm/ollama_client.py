@@ -1,6 +1,7 @@
 """Ollama client with LangChain integration and Tavily web search tool support."""
 
 from typing import Optional, List, Dict, Any, Union, Tuple
+import asyncio
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -133,6 +134,7 @@ class OllamaClient:
                     search_depth="basic",
                     include_domains=[],
                     exclude_domains=[],
+                    time_range="week"  # Set default time range to avoid validation error
                 )
                 
                 tools.append(tavily_tool)
@@ -359,6 +361,121 @@ class OllamaClient:
         # Simple extraction - in practice this could be more sophisticated
         return prompt[:100]  # Use first 100 chars as search query
     
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None
+    ):
+        """
+        Generate text from prompt with streaming output.
+        
+        Args:
+            prompt: The input prompt
+            system_prompt: Optional system prompt
+            temperature: Override default temperature
+            max_tokens: Maximum tokens to generate
+            
+        Yields:
+            String chunks as they are generated
+        """
+        try:
+            messages = []
+            if system_prompt:
+                messages.append(SystemMessage(content=system_prompt))
+            messages.append(HumanMessage(content=prompt))
+            
+            # Create streaming LLM instance without tools to enable token-level streaming
+            streaming_llm = ChatOllama(
+                base_url=self.base_url,
+                model=self.model,
+                temperature=temperature if temperature is not None else self.temperature
+            )
+            
+            # Stream the response
+            accumulated_response = ""
+            async for chunk in streaming_llm.astream(messages):
+                if hasattr(chunk, 'content') and chunk.content:
+                    content = str(chunk.content)
+                    accumulated_response += content
+                    yield content
+            
+            # Log the final response
+            self.logger.debug(f"Streaming response completed, length: {len(accumulated_response)} characters")
+            
+        except Exception as e:
+            self.logger.error(f"Streaming generation failed: {e}")
+            raise
+    
+    async def generate_with_web_search_stream(
+        self,
+        prompt: str,
+        enable_search: bool = True,
+        max_search_results: int = 5,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None
+    ):
+        """
+        Generate text with optional web search capability using streaming.
+        
+        Args:
+            prompt: The input prompt
+            enable_search: Whether to enable web search (if available)
+            max_search_results: Maximum search results to use
+            system_prompt: Optional system prompt
+            temperature: Override default temperature
+            max_tokens: Maximum tokens to generate
+            
+        Yields:
+            Dictionary with 'content' and metadata for each chunk
+        """
+        search_used = False
+        search_query = None
+        
+        # Check if web search should be used
+        if enable_search and self.web_search_enabled and self._should_use_web_search(prompt):
+            search_query = self._extract_search_query(prompt)
+            search_used = True
+            
+            # For web search, we need to use the full generate method first to get search results
+            # Then stream the final response
+            # This is a limitation of the current architecture - web search requires tools
+            full_response = await self.generate(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            
+            # Simulate streaming by yielding the response in chunks
+            chunk_size = 10  # Characters per chunk
+            for i in range(0, len(full_response), chunk_size):
+                chunk_content = full_response[i:i+chunk_size]
+                yield {
+                    'content': chunk_content,
+                    'search_used': search_used,
+                    'search_query': search_query,
+                    'is_final': i + chunk_size >= len(full_response)
+                }
+                # Small delay to simulate real streaming
+                await asyncio.sleep(0.01)
+        else:
+            # Use real streaming for non-web-search requests
+            async for content in self.generate_stream(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
+            ):
+                yield {
+                    'content': content,
+                    'search_used': search_used,
+                    'search_query': search_query,
+                    'is_final': False
+                }
+    
     def _strip_reasoning(self, text: str) -> str:
         """Strip reasoning blocks from response text."""
         import re
@@ -527,7 +644,13 @@ class OllamaClient:
         for tool in self.tools:
             if tool.name == tool_name:
                 try:
-                    result = tool.invoke(tool_args)
+                    # Clean up Tavily arguments to avoid validation errors
+                    if "tavily" in tool_name.lower():
+                        cleaned_args = self._clean_tavily_args(tool_args)
+                    else:
+                        cleaned_args = tool_args
+                    
+                    result = tool.invoke(cleaned_args)
                     self.logger.info(f"🔍 Executed {tool_name} normally")
                     return result
                 except Exception as e:
@@ -536,6 +659,26 @@ class OllamaClient:
         
         self.logger.warning(f"Tool not found: {tool_name}")
         return f"Unknown tool: {tool_name}"
+    
+    def _clean_tavily_args(self, tool_args: Dict[str, Any]) -> Dict[str, Any]:
+        """Clean up Tavily tool arguments to avoid validation errors."""
+        cleaned_args = tool_args.copy()
+        
+        # Fix time_range validation - if empty or invalid, set to default
+        if 'time_range' in cleaned_args:
+            time_range = cleaned_args['time_range']
+            if not time_range or time_range not in ['day', 'week', 'month', 'year']:
+                cleaned_args['time_range'] = 'week'  # Default to week
+        
+        # Ensure query is present and not empty
+        if 'query' not in cleaned_args or not cleaned_args.get('query'):
+            # If no query, provide a default
+            cleaned_args['query'] = tool_args.get('input', 'search query')
+        
+        # Remove any empty string parameters that might cause validation issues
+        cleaned_args = {k: v for k, v in cleaned_args.items() if v != ''}
+        
+        return cleaned_args
     
     def _format_cached_result_as_tool_response(self, cached_result) -> List[Dict[str, Any]]:
         """Format cached result to match Tavily tool response format."""

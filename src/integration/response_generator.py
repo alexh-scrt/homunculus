@@ -118,6 +118,80 @@ class ResponseGenerator:
             self.logger.error(f"Response generation failed: {e}")
             return self._create_fallback_response(user_message, str(e))
     
+    async def generate_response_stream(
+        self,
+        orchestration_result: Dict[str, Any],
+        cognitive_result: Dict[str, Any],
+        character_state: CharacterState,
+        user_message: str,
+        context: Dict[str, Any]
+    ):
+        """
+        Generate the final character response with streaming output.
+        
+        Args:
+            orchestration_result: Result from AgentOrchestrator
+            cognitive_result: Result from CognitiveModule
+            character_state: Current character state
+            user_message: User's message
+            context: Conversation context
+            
+        Yields:
+            Response chunks as they are generated
+        """
+        try:
+            # Extract key information
+            synthesis = orchestration_result.get('synthesis', {})
+            cognitive_patterns = cognitive_result.get('cognitive_patterns', {})
+            response_strategy = cognitive_result.get('response_strategy', {})
+            emotional_intelligence = cognitive_result.get('emotional_intelligence', {})
+            
+            # Build comprehensive prompt
+            prompt = self._build_response_prompt(
+                synthesis, cognitive_patterns, response_strategy,
+                emotional_intelligence, character_state, user_message, context
+            )
+            
+            # Determine generation parameters
+            generation_params = self._determine_generation_parameters(
+                response_strategy, cognitive_patterns, synthesis
+            )
+            
+            # Check if web search should be used
+            web_search_enabled = context.get('web_search_enabled', False)
+            
+            # Stream response using LLM
+            if web_search_enabled:
+                # Use web search streaming
+                async for chunk in self.llm_client.generate_with_web_search_stream(
+                    prompt=prompt,
+                    enable_search=True,
+                    temperature=generation_params['temperature'],
+                    max_tokens=generation_params['max_tokens']
+                ):
+                    yield chunk
+            else:
+                # Use regular streaming
+                async for content in self.llm_client.generate_stream(
+                    prompt=prompt,
+                    temperature=generation_params['temperature'],
+                    max_tokens=generation_params['max_tokens']
+                ):
+                    yield content
+            
+            self.logger.debug(f"Streaming response completed for character {self.character_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Streaming response generation failed: {e}")
+            # Yield fallback response
+            fallback = self._create_fallback_response(user_message, str(e))
+            fallback_text = fallback.get('response_text', 'I apologize, but I encountered an error while responding.')
+            
+            # Stream the fallback response in small chunks
+            chunk_size = 5
+            for i in range(0, len(fallback_text), chunk_size):
+                yield fallback_text[i:i+chunk_size]
+    
     def _build_response_prompt(
         self,
         synthesis: Dict[str, Any],

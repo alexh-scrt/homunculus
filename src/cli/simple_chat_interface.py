@@ -37,6 +37,7 @@ class SimpleChatInterface:
         self.character_loader = CharacterLoader()
         self.current_character: Optional[CharacterAgent] = None
         self.debug_mode = False
+        self.streaming_enabled = True  # Enable streaming by default
         
         self.logger.info("SimpleChatInterface initialized")
         log_system_info()
@@ -49,6 +50,7 @@ class SimpleChatInterface:
         self.commands = {
             '/help': 'Show available commands',
             '/debug': 'Toggle debug mode',
+            '/stream': 'Toggle streaming mode [on/off]',
             '/vitals': 'Show character vitals',
             '/memory': 'Show recent memories or search [query]',
             '/goals': 'Show character goals', 
@@ -236,20 +238,41 @@ class SimpleChatInterface:
                 print("Thinking...")
                 
                 try:
-                    result = await self.current_character.process_message(
-                        user_message=user_input,
-                        context={'debug_mode': self.debug_mode}
-                    )
-                    
-                    # Display character response
                     character_name = self.current_character.character_name
-                    response = result.get('response_text', 'No response generated')
                     
-                    print(f"{character_name}: {response}")
-                    
-                    # Display debug info if enabled
-                    if self.debug_mode and 'debug_info' in result:
-                        self.display_debug_info(result['debug_info'])
+                    if self.streaming_enabled:
+                        # Use streaming response
+                        context = {
+                            'debug_mode': self.debug_mode,
+                            'streaming': True
+                        }
+                        
+                        response_stream = self.current_character.process_message_stream(
+                            user_message=user_input,
+                            context=context
+                        )
+                        
+                        # Display streaming response
+                        response = await self.display_streaming_response(character_name, response_stream)
+                        
+                        # Note: debug info not available in streaming mode
+                        if self.debug_mode:
+                            print("[Debug info not available in streaming mode]")
+                        
+                    else:
+                        # Use regular response
+                        result = await self.current_character.process_message(
+                            user_message=user_input,
+                            context={'debug_mode': self.debug_mode}
+                        )
+                        
+                        # Display character response
+                        response = result.get('response_text', 'No response generated')
+                        print(f"{character_name}: {response}")
+                        
+                        # Display debug info if enabled
+                        if self.debug_mode and 'debug_info' in result:
+                            self.display_debug_info(result['debug_info'])
                     
                     print()  # Add spacing
                     
@@ -285,6 +308,9 @@ class SimpleChatInterface:
                 self.debug_mode = not self.debug_mode
                 status = "ON" if self.debug_mode else "OFF"
                 print(f"Debug mode: {status}")
+            
+            elif cmd == '/stream':
+                await self.handle_stream_command(args)
             
             elif cmd == '/vitals':
                 await self.show_vitals()
@@ -344,7 +370,28 @@ class SimpleChatInterface:
         print("  /memory recent          - Search for recent memories")
         print("  /save my_session        - Save with custom name")
         print("  /export today           - Export with custom filename")
+        print(f"  /stream on              - Enable streaming responses (currently {'ON' if self.streaming_enabled else 'OFF'})")
+        print(f"  /stream off             - Disable streaming responses")
         print()
+    
+    async def handle_stream_command(self, args: str) -> None:
+        """Handle streaming command."""
+        args = args.strip().lower()
+        
+        if args == "on":
+            self.streaming_enabled = True
+            print("Streaming mode: ON - Responses will stream character by character")
+        elif args == "off":
+            self.streaming_enabled = False
+            print("Streaming mode: OFF - Full responses will be displayed at once")
+        elif args == "":
+            # Toggle if no argument provided
+            self.streaming_enabled = not self.streaming_enabled
+            status = "ON" if self.streaming_enabled else "OFF"
+            print(f"Streaming mode: {status}")
+        else:
+            print("Usage: /stream [on|off]")
+            print(f"Current status: {'ON' if self.streaming_enabled else 'OFF'}")
     
     async def show_vitals(self) -> None:
         """Show character vitals."""
@@ -656,10 +703,35 @@ class SimpleChatInterface:
             print(f"Messages: {len(state.conversation_history)}")
             print(f"Trust Level: {state.relationship_state.get('trust_level', 0):.2f}")
             print(f"Debug Mode: {'ON' if self.debug_mode else 'OFF'}")
+            print(f"Streaming Mode: {'ON' if self.streaming_enabled else 'OFF'}")
             print()
             
         except Exception as e:
             print(f"Error displaying status: {e}")
+    
+    async def display_streaming_response(self, character_name: str, response_stream) -> str:
+        """Display a streaming response character by character."""
+        print(f"{character_name}: ", end="", flush=True)
+        
+        accumulated_response = ""
+        try:
+            async for chunk in response_stream:
+                if isinstance(chunk, dict):
+                    # Handle streaming with metadata (from web search stream)
+                    content = chunk.get('content', '')
+                else:
+                    # Handle plain string chunks
+                    content = str(chunk)
+                
+                print(content, end="", flush=True)
+                accumulated_response += content
+                
+            print()  # New line after complete response
+            return accumulated_response
+            
+        except Exception as e:
+            print(f"\n[Streaming error: {e}]")
+            return accumulated_response
     
     def display_debug_info(self, debug_info: Dict[str, Any]) -> None:
         """Display debug information."""

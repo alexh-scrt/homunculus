@@ -353,6 +353,94 @@ class CharacterAgent:
             # Return fallback response
             return self._create_fallback_response(user_message, str(e), response_time)
     
+    async def process_message_stream(
+        self,
+        user_message: str,
+        context: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Process a user message and generate a streaming character response.
+        
+        Args:
+            user_message: The user's input message
+            context: Optional additional context
+            
+        Yields:
+            Response chunks as they are generated
+        """
+        start_time = datetime.now()
+        
+        try:
+            # Update conversation context
+            self._update_conversation_context(user_message, context)
+            
+            # Add user message to history
+            self.character_state.add_to_history('user', user_message)
+            
+            # Step 1: Agent Orchestration
+            self.logger.debug("Starting agent orchestration for streaming")
+            orchestration_result = await self.agent_orchestrator.orchestrate_response(
+                context=self.conversation_context,
+                character_state=self.character_state,
+                user_message=user_message
+            )
+            
+            # Step 2: Cognitive Processing
+            self.logger.debug("Starting cognitive processing for streaming")
+            cognitive_result = self.cognitive_module.process_orchestration_result(
+                orchestration_result=orchestration_result,
+                character_state=self.character_state,
+                user_message=user_message,
+                context=self.conversation_context
+            )
+            
+            # Step 3: Stream Response Generation
+            self.logger.debug("Starting streaming response generation")
+            
+            # Accumulate the full response for state updates
+            accumulated_response = ""
+            
+            async for chunk in self.response_generator.generate_response_stream(
+                orchestration_result=orchestration_result,
+                cognitive_result=cognitive_result,
+                character_state=self.character_state,
+                user_message=user_message,
+                context=self.conversation_context
+            ):
+                # Extract content from chunk
+                if isinstance(chunk, dict):
+                    content = chunk.get('content', '')
+                else:
+                    content = str(chunk)
+                
+                accumulated_response += content
+                yield chunk
+            
+            # After streaming is complete, update character state with full response
+            if accumulated_response:
+                self.character_state.add_to_history('character', accumulated_response)
+            
+            # Update performance stats
+            end_time = datetime.now()
+            response_time = (end_time - start_time).total_seconds()
+            self._update_performance_stats(response_time, success=True)
+            
+            self.logger.info(f"Successfully streamed response for {self.character_id} in {response_time:.2f}s")
+            
+        except Exception as e:
+            # Handle failure
+            end_time = datetime.now()
+            response_time = (end_time - start_time).total_seconds()
+            self._update_performance_stats(response_time, success=False)
+            
+            self.logger.error(f"Failed to stream response for {self.character_id}: {e}")
+            
+            # Yield fallback response
+            fallback_text = f"I apologize, but I encountered an error: {str(e)}"
+            chunk_size = 5
+            for i in range(0, len(fallback_text), chunk_size):
+                yield fallback_text[i:i+chunk_size]
+    
     def _update_conversation_context(
         self,
         user_message: str,

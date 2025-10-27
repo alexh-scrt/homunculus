@@ -291,6 +291,121 @@ class SimpleRemoteChatInterface(SimpleChatInterface):
             
         except Exception as e:
             print(f"Error displaying status: {e}")
+    
+    async def display_streaming_response(self, character_name: str, response_stream) -> str:
+        """Display a streaming response - override for remote mode."""
+        if self.is_remote_mode:
+            # For remote mode, we simulate streaming since WebSocket streaming isn't implemented yet
+            print(f"{character_name}: ", end="", flush=True)
+            
+            # If response_stream is a string (from simulated streaming), chunk it
+            if isinstance(response_stream, str):
+                chunk_size = 3  # Characters per chunk for simulation
+                for i in range(0, len(response_stream), chunk_size):
+                    chunk = response_stream[i:i+chunk_size]
+                    print(chunk, end="", flush=True)
+                    await asyncio.sleep(0.02)  # Small delay to simulate streaming
+                print()  # New line after complete response
+                return response_stream
+            else:
+                # Use parent implementation for actual streaming
+                return await super().display_streaming_response(character_name, response_stream)
+        else:
+            # Use parent implementation when in local fallback mode
+            return await super().display_streaming_response(character_name, response_stream)
+    
+    async def conversation_loop(self) -> None:
+        """Override conversation loop to handle remote mode streaming."""
+        if not self.current_character:
+            return
+        
+        print(f"\n=== Conversation Started ===\n")
+        
+        while True:
+            try:
+                # Get user input
+                user_input = input(f"You: ").strip()
+                
+                if not user_input:
+                    continue
+                
+                # Handle commands
+                if user_input.startswith('/'):
+                    command_result = await self.handle_command(user_input)
+                    if command_result == 'exit':
+                        break
+                    continue
+                
+                # Process message with character
+                print("Thinking...")
+                
+                try:
+                    character_name = self.current_character.character_name or "Character"
+                    
+                    if self.streaming_enabled:
+                        if self.is_remote_mode:
+                            # For remote mode, get full response then simulate streaming
+                            context = {
+                                'debug_mode': self.debug_mode,
+                                'streaming': False  # Remote doesn't support real streaming yet
+                            }
+                            
+                            result = await self.current_character.process_message(
+                                user_message=user_input,
+                                context=context
+                            )
+                            
+                            response = result.get('response_text', 'No response generated')
+                            
+                            # Simulate streaming display
+                            await self.display_streaming_response(character_name, response)
+                            
+                            # Note about remote streaming
+                            if self.debug_mode:
+                                print("[Remote mode: Simulated streaming - WebSocket streaming not yet implemented]")
+                        
+                        else:
+                            # Local mode - use real streaming
+                            context = {
+                                'debug_mode': self.debug_mode,
+                                'streaming': True
+                            }
+                            
+                            response_stream = self.current_character.process_message_stream(
+                                user_message=user_input,
+                                context=context
+                            )
+                            
+                            # Display real streaming response
+                            response = await self.display_streaming_response(character_name, response_stream)
+                            
+                            if self.debug_mode:
+                                print("[Debug info not available in streaming mode]")
+                    
+                    else:
+                        # Non-streaming mode works the same for both remote and local
+                        result = await self.current_character.process_message(
+                            user_message=user_input,
+                            context={'debug_mode': self.debug_mode}
+                        )
+                        
+                        # Display character response
+                        response = result.get('response_text', 'No response generated')
+                        print(f"{character_name}: {response}")
+                        
+                        # Display debug info if enabled
+                        if self.debug_mode and 'debug_info' in result:
+                            self.display_debug_info(result['debug_info'])
+                    
+                    print()  # Add spacing
+                    
+                except Exception as e:
+                    print(f"Error processing message: {e}")
+                    continue
+                
+            except KeyboardInterrupt:
+                if await self.confirm_exit():
+                    break
 
 
 async def main():
