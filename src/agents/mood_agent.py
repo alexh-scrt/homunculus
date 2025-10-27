@@ -86,6 +86,10 @@ class MoodAgent(BaseAgent):
             use_web_search=False  # Mood is internal state
         )
         
+        # Ensure we have valid content
+        if not response or not response.strip():
+            response = f"Current mood is {emotional_tone}. Energy level at {energy_level:.2f}. Maintaining emotional stability."
+        
         # Mood is very important and reliable
         confidence = 0.85
         priority = 0.9

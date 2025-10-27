@@ -1,6 +1,7 @@
 """Experience module for episodic memory storage and retrieval using ChromaDB."""
 
 import logging
+import os
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import uuid
@@ -75,18 +76,42 @@ class ExperienceModule:
     def _init_chromadb(self) -> chromadb.Client:
         """Initialize ChromaDB client with appropriate settings."""
         try:
+            # Ensure the persist directory exists and has proper permissions
+            persist_dir = self.settings.chroma_persist_directory
+            
+            # Create directory if it doesn't exist
+            if not os.path.exists(persist_dir):
+                os.makedirs(persist_dir, mode=0o755, exist_ok=True)
+                self.logger.info(f"Created ChromaDB directory: {persist_dir}")
+            
+            # Check if directory is writable
+            if not os.access(persist_dir, os.W_OK):
+                raise PermissionError(f"ChromaDB directory not writable: {persist_dir}")
+            
             # Use persistent client for data persistence
             client = chromadb.PersistentClient(
-                path=self.settings.chroma_persist_directory,
+                path=persist_dir,
                 settings=ChromaSettings(
                     anonymized_telemetry=False,
                     allow_reset=True
                 )
             )
             
-            self.logger.info(f"ChromaDB client initialized at {self.settings.chroma_persist_directory}")
+            self.logger.info(f"ChromaDB client initialized at {persist_dir}")
             return client
             
+        except PermissionError as e:
+            self.logger.error(f"ChromaDB permission error: {e}")
+            self.logger.warning("Falling back to in-memory ChromaDB client")
+            return chromadb.Client()
+        except OSError as e:
+            if "Permission denied" in str(e):
+                self.logger.error(f"ChromaDB permission denied (os error 13): {persist_dir}")
+                self.logger.info("Try running with appropriate permissions or changing CHROMA_PERSIST_DIRECTORY")
+            else:
+                self.logger.error(f"ChromaDB OS error: {e}")
+            self.logger.warning("Falling back to in-memory ChromaDB client")
+            return chromadb.Client()
         except Exception as e:
             self.logger.error(f"Failed to initialize ChromaDB: {e}")
             # Fallback to in-memory client
@@ -177,41 +202,69 @@ class ExperienceModule:
             List of Experience objects ordered by similarity
         """
         try:
-            # Build where clause for filtering
+            # Build where clause for filtering - ChromaDB expects simple equality filters
             where_clause = {"character_id": self.character_id}
             
-            if time_window_days:
-                cutoff_date = datetime.now() - timedelta(days=time_window_days)
-                where_clause["timestamp"] = {"$gte": cutoff_date.isoformat()}
+            # For ChromaDB, we need to handle time filtering differently
+            # We'll filter the results after querying instead of in the where clause
             
             if experience_types:
-                where_clause["experience_type"] = {"$in": experience_types}
+                # Only add simple equality filters to ChromaDB where clause
+                if len(experience_types) == 1:
+                    where_clause["experience_type"] = experience_types[0]
+                # If multiple types, we'll filter after querying
             
-            if min_intensity:
-                where_clause["intensity"] = {"$gte": str(min_intensity)}
+            # Query the collection (ChromaDB doesn't support complex operators in where)
+            try:
+                results = self.collection.query(
+                    query_texts=[query_text],
+                    n_results=n_results * 2,  # Get more results to allow for filtering
+                    where=where_clause if len(where_clause) > 1 else {"character_id": self.character_id}
+                )
+            except Exception as query_error:
+                self.logger.warning(f"ChromaDB query with where clause failed: {query_error}, trying without where clause")
+                # Fallback: query without where clause and filter manually
+                results = self.collection.query(
+                    query_texts=[query_text],
+                    n_results=n_results * 3  # Get even more to filter manually
+                )
             
-            # Query the collection
-            results = self.collection.query(
-                query_texts=[query_text],
-                n_results=n_results,
-                where=where_clause if len(where_clause) > 1 else None
-            )
-            
-            # Convert results back to Experience objects
+            # Convert results back to Experience objects with post-query filtering
             experiences = []
             if results["ids"] and results["ids"][0]:
                 for i, experience_id in enumerate(results["ids"][0]):
                     try:
                         experience = await self.get_experience_by_id(experience_id)
                         if experience:
+                            # Apply post-query filters
+                            
+                            # Time window filtering
+                            if time_window_days:
+                                cutoff_date = datetime.now() - timedelta(days=time_window_days)
+                                if experience.timestamp < cutoff_date:
+                                    continue
+                            
+                            # Experience type filtering (if multiple types were specified)
+                            if experience_types and len(experience_types) > 1:
+                                if experience.experience_type not in experience_types:
+                                    continue
+                            
+                            # Intensity filtering
+                            if min_intensity and experience.intensity < min_intensity:
+                                continue
+                            
                             # Add similarity score from ChromaDB
-                            if results["distances"] and results["distances"][0]:
+                            if results["distances"] and results["distances"][0] and i < len(results["distances"][0]):
                                 distance = results["distances"][0][i]
                                 similarity = 1.0 - distance  # Convert distance to similarity
                                 # Store similarity in a way that won't interfere with the dataclass
                                 experience._similarity_score = similarity
                             
                             experiences.append(experience)
+                            
+                            # Stop when we have enough results
+                            if len(experiences) >= n_results:
+                                break
                             
                     except Exception as e:
                         self.logger.warning(f"Failed to reconstruct experience {experience_id}: {e}")
@@ -266,20 +319,29 @@ class ExperienceModule:
         cutoff_date = datetime.now() - timedelta(days=days_back)
         
         try:
-            results = self.collection.get(
-                where={
-                    "character_id": self.character_id,
-                    "timestamp": {"$gte": cutoff_date.isoformat()}
-                },
-                limit=n_results
-            )
+            # Use simple where clause for ChromaDB - filter by time after retrieval
+            try:
+                results = self.collection.get(
+                    where={"character_id": self.character_id},
+                    limit=n_results * 3  # Get more to filter by time
+                )
+            except Exception as get_error:
+                self.logger.warning(f"ChromaDB get with where clause failed: {get_error}, trying without where clause")
+                # Fallback: get all and filter manually
+                results = self.collection.get(limit=n_results * 5)
             
             experiences = []
             if results["ids"]:
                 for experience_id in results["ids"]:
                     experience = await self.get_experience_by_id(experience_id)
                     if experience:
-                        experiences.append(experience)
+                        # Apply time filtering manually
+                        if experience.timestamp >= cutoff_date:
+                            experiences.append(experience)
+                        
+                        # Stop when we have enough results
+                        if len(experiences) >= n_results:
+                            break
             
             # Sort by timestamp (most recent first)
             experiences.sort(key=lambda x: x.timestamp, reverse=True)

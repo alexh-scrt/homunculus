@@ -200,7 +200,11 @@ class AgentOrchestrator:
     ) -> AgentInput:
         """Safely consult an agent with error handling."""
         try:
-            return agent.consult(context, character_state, user_message)
+            # Check if agent consult method is async
+            if hasattr(agent, 'consult') and asyncio.iscoroutinefunction(agent.consult):
+                return await agent.consult(context, character_state, user_message)
+            else:
+                return agent.consult(context, character_state, user_message)
         except Exception as e:
             self.logger.warning(f"Agent {agent.agent_type} consultation failed: {e}")
             return self._create_fallback_input(agent.agent_type, str(e))

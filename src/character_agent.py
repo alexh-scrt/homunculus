@@ -140,6 +140,26 @@ class CharacterAgent:
         
         self.logger.info(f"CharacterAgent initialized for {character_id}")
     
+    @property
+    def character_name(self) -> str:
+        """Get the character's name."""
+        return self.character_state.name
+    
+    @property
+    def state(self) -> CharacterState:
+        """Get the current character state."""
+        return self.character_state
+    
+    async def initialize(self) -> None:
+        """Initialize the character agent (async operations)."""
+        try:
+            # Initialize any async components if needed
+            # For now, most initialization is done in __init__
+            self.logger.info(f"CharacterAgent async initialization completed for {self.character_id}")
+        except Exception as e:
+            self.logger.error(f"Error during async initialization: {e}")
+            raise
+    
     def _initialize_character_state(self) -> CharacterState:
         """Initialize character state from configuration."""
         
@@ -297,7 +317,7 @@ class CharacterAgent:
                 'orchestration_summary': {
                     'agent_count': len(orchestration_result.get('agent_inputs', {})),
                     'conflicts_resolved': len(orchestration_result.get('conflicts_detected', [])),
-                    'primary_agent': orchestration_result.get('synthesis', {}).get('primary_guidance', {}).get('agent_type', 'unknown') if orchestration_result.get('synthesis', {}).get('primary_guidance') else 'none'
+                    'primary_agent': orchestration_result.get('synthesis', {}).get('primary_guidance').agent_type if orchestration_result.get('synthesis', {}).get('primary_guidance') else 'none'
                 },
                 'cognitive_summary': {
                     'thinking_style': cognitive_result.get('cognitive_patterns', {}).get('thinking_style', 'balanced'),
@@ -537,6 +557,80 @@ class CharacterAgent:
         
         self.logger.info(f"Character state reset for {self.character_id} (memories preserved: {preserve_memories})")
     
+    def get_state_dict(self) -> Dict[str, Any]:
+        """Get character state as dictionary for saving.
+        
+        Returns:
+            Dictionary containing complete character state
+        """
+        # Create a copy of conversation_context with serializable datetime
+        conversation_context_copy = self.conversation_context.copy()
+        if 'conversation_start' in conversation_context_copy:
+            conversation_context_copy['conversation_start'] = conversation_context_copy['conversation_start'].isoformat()
+        
+        return {
+            'character_state': self.character_state.to_dict(),
+            'conversation_context': conversation_context_copy,
+            'performance_stats': self.performance_stats,
+            'character_config': self.character_config,
+            'save_timestamp': datetime.now().isoformat()
+        }
+    
+    async def load_state_dict(self, state_data: Dict[str, Any]) -> None:
+        """Load character state from dictionary.
+        
+        Args:
+            state_data: Dictionary containing character state data
+        """
+        try:
+            # Extract data
+            character_state_dict = state_data['character_state']
+            conversation_context = state_data.get('conversation_context', {})
+            performance_stats = state_data.get('performance_stats', {})
+            
+            # Convert conversation_start back to datetime if present
+            if 'conversation_start' in conversation_context and isinstance(conversation_context['conversation_start'], str):
+                conversation_context['conversation_start'] = datetime.fromisoformat(conversation_context['conversation_start'])
+            
+            # Restore state
+            self.character_state = CharacterState.from_dict(character_state_dict)
+            self.conversation_context = conversation_context
+            self.performance_stats.update(performance_stats)
+            
+            self.logger.info(f"Character state loaded from dictionary for {self.character_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load character state from dictionary: {e}")
+            raise
+    
+    async def recall_past_conversations(self, query: str = "", limit: int = 5) -> List[Dict[str, Any]]:
+        """Recall past conversations based on query.
+        
+        Args:
+            query: Search query for memories
+            limit: Maximum number of memories to return
+            
+        Returns:
+            List of memory dictionaries with similarity scores
+        """
+        try:
+            # Get the memory agent from orchestrator
+            memory_agent = self.agent_orchestrator.agents.get('memory')
+            if not memory_agent:
+                return []
+            
+            # Use the memory agent to retrieve relevant experiences
+            memories = await memory_agent.retrieve_relevant_experiences(
+                query=query,
+                limit=limit
+            )
+            
+            return memories
+            
+        except Exception as e:
+            self.logger.error(f"Error recalling past conversations: {e}")
+            return []
+    
     def save_character_state(self, filepath: str) -> None:
         """Save character state to file."""
         try:
@@ -606,10 +700,15 @@ class CharacterAgent:
     def close(self):
         """Clean up resources."""
         try:
-            self.agent_orchestrator.close()
-            self.logger.info(f"CharacterAgent closed for {self.character_id}")
+            if hasattr(self, 'agent_orchestrator'):
+                self.agent_orchestrator.close()
+            if hasattr(self, 'logger'):
+                self.logger.info(f"CharacterAgent closed for {self.character_id}")
         except Exception as e:
-            self.logger.error(f"Error closing CharacterAgent: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error closing CharacterAgent: {e}")
+            else:
+                print(f"Error closing CharacterAgent: {e}")
     
     def __del__(self):
         """Cleanup when object is destroyed."""

@@ -268,18 +268,35 @@ class KnowledgeGraphModule:
         
         try:
             with self.driver.session() as session:
-                # Build the query dynamically
-                concept_conditions = " OR ".join([f"c.name CONTAINS '{concept.lower()}'" for concept in concepts])
-                domain_condition = ""
-                if domains:
-                    domain_list = "', '".join(domains)
-                    domain_condition = f"AND f.domain IN ['{domain_list}']"
+                # Validate concepts list
+                valid_concepts = [concept.strip() for concept in concepts if concept and concept.strip()]
+                if not valid_concepts:
+                    self.logger.debug("No valid concepts provided for fact retrieval")
+                    return []
                 
+                # Build the query dynamically with proper escaping
+                # Use parameterized queries to prevent injection
+                concept_params = {}
+                concept_conditions = []
+                for i, concept in enumerate(valid_concepts):
+                    param_name = f"concept_{i}"
+                    concept_params[param_name] = concept.lower()
+                    concept_conditions.append(f"c.name CONTAINS ${param_name}")
+                
+                concept_condition_str = " OR ".join(concept_conditions)
+                
+                domain_condition = ""
+                domain_params = {}
+                if domains:
+                    domain_params["domains"] = domains
+                    domain_condition = "AND f.domain IN $domains"
+                
+                # Build the query string avoiding variable name conflicts
                 query = f"""
                 MATCH (f:Fact)-[:RELATES_TO]->(c:Concept)
                 WHERE f.character_id = $character_id
                 AND f.confidence >= $min_confidence
-                AND ({concept_conditions})
+                AND ({concept_condition_str})
                 {domain_condition}
                 WITH f, COUNT(DISTINCT c) AS concept_matches
                 ORDER BY concept_matches DESC, f.confidence DESC, f.timestamp DESC
@@ -290,14 +307,19 @@ class KnowledgeGraphModule:
                        f.confidence as confidence, f.domain as domain,
                        f.timestamp as timestamp, f.retrieval_count as retrieval_count,
                        concept_matches,
-                       COLLECT(DISTINCT {query: w.query, url: w.url, title: w.title}) as web_sources
+                       COLLECT(DISTINCT {{query: w.query, url: w.url, title: w.title}}) as web_sources
                 """
                 
-                result = session.run(query, {
+                # Merge all parameters
+                query_params = {
                     "character_id": self.character_id,
                     "min_confidence": min_confidence,
                     "limit": limit
-                })
+                }
+                query_params.update(concept_params)
+                query_params.update(domain_params)
+                
+                result = session.run(query, query_params)
                 
                 facts = []
                 for record in result:
@@ -323,6 +345,8 @@ class KnowledgeGraphModule:
             
         except Exception as e:
             self.logger.error(f"Failed to retrieve related facts: {e}")
+            import traceback
+            self.logger.debug(f"Full traceback:\n{traceback.format_exc()}")
             return []
     
     async def _update_fact_retrieval_stats(self, fact_id: str):

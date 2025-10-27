@@ -58,6 +58,24 @@ Examples:
         help='Directory for saving character states (default: ./data/saves)'
     )
     
+    parser.add_argument(
+        '--activate', '-a',
+        type=str,
+        help='Activate character directly (same as --character but with enhanced interface)'
+    )
+    
+    parser.add_argument(
+        '--vitals-only', '-v',
+        action='store_true',
+        help='Show only vitals monitoring (no chat interface)'
+    )
+    
+    parser.add_argument(
+        '--no-vitals',
+        action='store_true',
+        help='Disable vitals display (use original interface)'
+    )
+    
     return parser
 
 
@@ -172,12 +190,53 @@ async def main():
     
     # Run chat
     try:
-        if args.character:
+        # Determine character ID and interface mode
+        character_id = args.activate or args.character
+        use_enhanced = args.activate or args.vitals_only or not args.no_vitals
+        
+        if character_id:
             # Run with specific character
-            await run_with_specific_character(args.character, args.debug)
+            if use_enhanced:
+                # Use enhanced interface with vitals
+                interface = ChatInterface(
+                    enable_vitals=not args.no_vitals,
+                    vitals_only=args.vitals_only
+                )
+                interface.debug_mode = args.debug
+                
+                # Set custom save directory if provided
+                if args.save_dir:
+                    interface.save_dir = Path(args.save_dir)
+                    interface.save_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Display activation message
+                try:
+                    loader = CharacterLoader()
+                    info = loader.get_character_info(character_id)
+                    name = info.get('name', character_id)
+                    
+                    if args.vitals_only:
+                        print(f"\nActivating vitals monitoring for {name}...")
+                        print("Press Ctrl+C to exit\n")
+                    else:
+                        print(f"\nActivating enhanced chat with {name}...")
+                        print("✨ Dual-pane interface with real-time vitals\n")
+                except:
+                    pass
+                
+                await interface.run(character_id=character_id)
+            else:
+                # Use original interface
+                await run_with_specific_character(character_id, args.debug)
         else:
             # Run full interactive interface
-            interface = ChatInterface()
+            if use_enhanced and not args.no_vitals:
+                # Enhanced interface with character selection
+                interface = ChatInterface(enable_vitals=True, vitals_only=False)
+            else:
+                # Original interface
+                interface = ChatInterface(enable_vitals=False)
+            
             interface.debug_mode = args.debug
             
             # Set custom save directory if provided

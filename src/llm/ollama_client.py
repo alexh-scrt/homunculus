@@ -5,12 +5,36 @@ import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 try:
-    from langchain_community.llms import Ollama
+    # Use the newer langchain-ollama package instead of langchain-community
+    from langchain_ollama import ChatOllama
     from langchain_core.prompts import PromptTemplate
-    from langchain_core.tools import Tool
-    from tavily import TavilyClient
+    from langchain_core.tools import BaseTool
+    from langchain_core.messages import HumanMessage, SystemMessage
+    
+    # Try newer langchain-tavily package first
+    try:
+        from langchain_tavily import TavilySearch as TavilySearchResults
+    except ImportError:
+        # Fallback to older langchain-community version
+        from langchain_community.tools.tavily_search import TavilySearchResults
+        
 except ImportError as e:
-    raise ImportError(f"Required dependencies not installed: {e}")
+    try:
+        # Fallback to community version if new one not available
+        from langchain_community.llms import ChatOllama
+        from langchain_core.prompts import PromptTemplate
+        from langchain_core.tools import BaseTool
+        from langchain_core.messages import HumanMessage, SystemMessage
+        
+        # Try newer langchain-tavily package first
+        try:
+            from langchain_tavily import TavilySearch as TavilySearchResults
+        except ImportError:
+            # Fallback to older langchain-community version
+            from langchain_community.tools.tavily_search import TavilySearchResults
+            
+    except ImportError:
+        raise ImportError(f"Required dependencies not installed: {e}")
 
 try:
     from ..config.settings import get_settings
@@ -19,67 +43,6 @@ except ImportError:
     from config.settings import get_settings
 
 
-class TavilySearchTool:
-    """Wrapper for Tavily web search functionality."""
-    
-    def __init__(self, api_key: str):
-        """Initialize Tavily client."""
-        self.client = TavilyClient(api_key=api_key)
-        self.logger = logging.getLogger(__name__)
-    
-    def search(
-        self,
-        query: str,
-        max_results: int = 5,
-        search_depth: str = "basic"
-    ) -> List[Dict[str, Any]]:
-        """
-        Perform web search using Tavily.
-        
-        Args:
-            query: Search query string
-            max_results: Maximum number of results to return
-            search_depth: "basic" or "advanced" search depth
-            
-        Returns:
-            List of search results with title, url, content, etc.
-        """
-        try:
-            self.logger.info(f"Performing web search for: {query}")
-            
-            response = self.client.search(
-                query=query,
-                max_results=max_results,
-                search_depth=search_depth,
-                include_answer=True,
-                include_raw_content=False
-            )
-            
-            results = response.get('results', [])
-            self.logger.info(f"Found {len(results)} search results")
-            
-            return results
-            
-        except Exception as e:
-            self.logger.error(f"Web search failed: {e}")
-            return []
-    
-    def get_search_summary(self, query: str) -> str:
-        """Get a concise search summary for a query."""
-        try:
-            response = self.client.search(
-                query=query,
-                max_results=3,
-                search_depth="basic",
-                include_answer=True
-            )
-            
-            # Return the AI-generated answer if available
-            return response.get('answer', 'No summary available')
-            
-        except Exception as e:
-            self.logger.error(f"Search summary failed: {e}")
-            return f"Search failed: {str(e)}"
 
 
 class OllamaClient:
@@ -95,7 +58,8 @@ class OllamaClient:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         temperature: float = 0.7,
-        tavily_api_key: Optional[str] = None
+        tavily_api_key: Optional[str] = None,
+        web_search: bool = True
     ):
         """Initialize Ollama client with optional Tavily integration."""
         self.settings = get_settings()
@@ -105,27 +69,64 @@ class OllamaClient:
         self.model = model or self.settings.ollama_model
         self.temperature = temperature
         
-        # Initialize Ollama LLM
-        self.llm = Ollama(
-            base_url=self.base_url,
-            model=self.model,
-            temperature=self.temperature
-        )
-        
-        # Initialize Tavily if API key is available
-        self.tavily_tool = None
-        self.web_search_enabled = False
-        
-        tavily_key = tavily_api_key or self.settings.tavily_api_key
-        if tavily_key and self.settings.web_search_enabled:
-            try:
-                self.tavily_tool = TavilySearchTool(tavily_key)
-                self.web_search_enabled = True
-                self.logger.info("Tavily web search enabled")
-            except Exception as e:
-                self.logger.warning(f"Failed to initialize Tavily: {e}")
-        
+        # Initialize logger first
         self.logger = logging.getLogger(__name__)
+        
+        # Web search capability (expose for agent compatibility)
+        self.web_search_enabled = self.settings.web_search_enabled and web_search
+        
+        # Track tool usage
+        self._last_tool_calls = []  # Store tool call history
+        self._tools_used_this_turn = False  # Flag for current turn
+        
+        # Setup LLM parameters
+        llm_params = {
+            "base_url": self.base_url,
+            "model": self.model,
+            "temperature": self.temperature
+        }
+        
+        self.llm = ChatOllama(**llm_params)
+        
+        # Setup tools if needed
+        self.tools = [] if not web_search else self._setup_tools()
+        
+        # Bind tools to LLM if available
+        if self.tools:
+            self.llm = self.llm.bind_tools(self.tools)
+            self.logger.info(f"Bound {len(self.tools)} tools to Ollama LLM")
+    
+    def _setup_tools(self) -> List[BaseTool]:
+        """Setup tools for the LLM following the reference implementation."""
+        tools = []
+        
+        # Add web search tool for research
+        tavily_api_key = self.settings.tavily_api_key
+        if tavily_api_key and self.settings.web_search_enabled:
+            try:
+                # Set environment variable for TavilySearch to use
+                import os
+                os.environ['TAVILY_API_KEY'] = tavily_api_key
+                
+                # Use the newer TavilySearch (imported as TavilySearchResults)
+                tavily_tool = TavilySearchResults(
+                    max_results=5,
+                    include_answer=True,
+                    include_raw_content=False,
+                    include_images=False,
+                    search_depth="basic",
+                    include_domains=[],
+                    exclude_domains=[],
+                )
+                
+                tools.append(tavily_tool)
+                self.logger.info("✅ Tavily search tool added to Ollama client")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to setup Tavily for Ollama client: {e}")
+        else:
+            self.logger.warning("⚠️ TAVILY_API_KEY not set or web search disabled - web search not available")
+                
+        return tools
     
     @retry(
         stop=stop_after_attempt(3),
@@ -134,46 +135,167 @@ class OllamaClient:
     def generate(
         self,
         prompt: str,
+        system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        stop_sequences: Optional[List[str]] = None
+        max_tokens: Optional[int] = None
     ) -> str:
         """
-        Generate text from prompt with retry logic.
+        Generate text from prompt with tool support and retry logic.
         
         Args:
             prompt: The input prompt
+            system_prompt: Optional system prompt
             temperature: Override default temperature
             max_tokens: Maximum tokens to generate
-            stop_sequences: Sequences that stop generation
             
         Returns:
             Generated text response
         """
         try:
+            # Reset tool usage tracking for this turn
+            self._last_tool_calls = []
+            self._tools_used_this_turn = False
+            
+            messages = []
+            if system_prompt:
+                messages.append(SystemMessage(content=system_prompt))
+            messages.append(HumanMessage(content=prompt))
+            
             # Create LLM instance with custom parameters if needed
-            if temperature is not None or max_tokens is not None:
-                custom_llm = Ollama(
+            if temperature is not None:
+                custom_llm = ChatOllama(
                     base_url=self.base_url,
                     model=self.model,
-                    temperature=temperature or self.temperature,
-                    # Note: Ollama doesn't directly support max_tokens, this depends on model
+                    temperature=temperature
                 )
-                response = custom_llm.invoke(prompt)
+                if self.tools:
+                    custom_llm = custom_llm.bind_tools(self.tools)
+                response = custom_llm.invoke(messages)
             else:
-                response = self.llm.invoke(prompt)
+                response = self.llm.invoke(messages)
             
-            self.logger.debug(f"Generated response length: {len(response)} characters")
-            return response
+            # Handle tool calls if present
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                self._last_tool_calls = response.tool_calls  # Track calls
+                self._tools_used_this_turn = True  # Set flag
+                
+                # Process tool calls
+                tool_results = []
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call['name']
+                    tool_args = tool_call['args']
+                    
+                    # Find and execute the tool
+                    tool_found = False
+                    for tool in self.tools:
+                        if tool.name == tool_name:
+                            tool_found = True
+                            try:
+                                result = tool.invoke(tool_args)
+                                tool_results.append(result)
+                                self.logger.info(f"🔍 Ollama client used {tool_name}")
+                            except Exception as e:
+                                self.logger.error(f"Tool execution failed: {e}")
+                                tool_results.append(f"Tool error: {str(e)}")
+                            break
+                    
+                    # Handle unknown tools
+                    if not tool_found:
+                        self.logger.warning(f"LLM tried to call unknown tool: {tool_name}")
+                        tool_results.append(f"Unknown tool: {tool_name}")
+                
+                # If we have tool results, generate a final response incorporating them
+                if tool_results:
+                    messages.append(response)
+                    tool_message = f"Tool results: {tool_results}"
+                    messages.append(HumanMessage(content=tool_message))
+                    final_response = self.llm.invoke(messages)
+                    final_content = final_response.content if isinstance(final_response.content, str) else str(final_response.content)
+                    
+                    # Ensure we have meaningful content
+                    if not final_content or not final_content.strip():
+                        self.logger.warning("Empty response after tool execution, creating fallback response")
+                        # Create a basic response incorporating tool results
+                        if tool_results and len(tool_results) > 0:
+                            if isinstance(tool_results[0], dict) and 'content' in tool_results[0]:
+                                final_content = tool_results[0]['content']
+                            elif isinstance(tool_results[0], str):
+                                final_content = tool_results[0]
+                            else:
+                                final_content = f"Based on my search, here's what I found: {str(tool_results[0])}"
+                        else:
+                            final_content = "I searched for information but need to process the results further."
+                    
+                    return self._strip_reasoning(final_content)
+            
+            # Handle case where response has content but it might be tool call JSON
+            if hasattr(response, 'content'):
+                # Handle different content types
+                if isinstance(response.content, str):
+                    response_text = response.content
+                elif isinstance(response.content, list):
+                    # If content is a list, try to extract text content
+                    response_text = ""
+                    for item in response.content:
+                        if isinstance(item, str):
+                            response_text += item
+                        elif isinstance(item, dict) and 'text' in item:
+                            response_text += item['text']
+                    if not response_text:
+                        response_text = str(response.content)
+                else:
+                    response_text = str(response.content)
+            else:
+                response_text = str(response)
+            
+            # If response looks like JSON tool call, extract meaningful content
+            if isinstance(response_text, str) and response_text.strip().startswith('{') and '"name"' in response_text and '"parameters"' in response_text:
+                self.logger.warning("Received raw tool call JSON as response content - this shouldn't happen")
+                # Try to extract any actual content or provide fallback
+                try:
+                    import json
+                    tool_data = json.loads(response_text)
+                    if 'parameters' in tool_data and 'tool_results' in tool_data['parameters']:
+                        tool_results = tool_data['parameters']['tool_results']
+                        if tool_results and len(tool_results) > 0 and 'response' in tool_results[0]:
+                            response_text = tool_results[0]['response']
+                        else:
+                            response_text = "I need to process that information further."
+                    else:
+                        response_text = "I'm thinking about how to respond to that."
+                except:
+                    response_text = "Let me think about that for a moment."
+            
+            self.logger.debug(f"Generated response length: {len(response_text)} characters")
+            return self._strip_reasoning(str(response_text))
             
         except Exception as e:
             self.logger.error(f"LLM generation failed: {e}")
             raise
     
+    def _strip_reasoning(self, text: str) -> str:
+        """Strip reasoning blocks from response text."""
+        import re
+        # Remove common reasoning patterns
+        reasoning_patterns = [
+            r'<think>.*?</think>',
+            r'<thinking>.*?</thinking>',
+            r'<reasoning>.*?</reasoning>',
+            r'\[thinking\].*?\[/thinking\]',
+            r'\[reasoning\].*?\[/reasoning\]'
+        ]
+        
+        cleaned_text = text
+        for pattern in reasoning_patterns:
+            cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.DOTALL)
+        
+        return cleaned_text.strip()
+    
     def generate_with_template(
         self,
         template: str,
         variables: Dict[str, Any],
+        system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None
     ) -> str:
@@ -183,6 +305,7 @@ class OllamaClient:
         Args:
             template: Prompt template with placeholders
             variables: Dictionary of variables to fill template
+            system_prompt: Optional system prompt
             temperature: Override default temperature
             max_tokens: Maximum tokens to generate
             
@@ -195,6 +318,7 @@ class OllamaClient:
             
             return self.generate(
                 prompt=prompt,
+                system_prompt=system_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens
             )
@@ -203,144 +327,13 @@ class OllamaClient:
             self.logger.error(f"Template generation failed: {e}")
             raise
     
-    def generate_with_web_search(
-        self,
-        prompt: str,
-        enable_search: bool = True,
-        max_search_results: int = 3,
-        temperature: Optional[float] = None
-    ) -> Dict[str, Any]:
-        """
-        Generate text with optional web search capability.
-        
-        The LLM can decide whether to use web search based on the prompt.
-        This is a simplified version - in production you'd use LangChain agents.
-        
-        Args:
-            prompt: The input prompt
-            enable_search: Whether to allow web search
-            max_search_results: Max search results to use
-            temperature: Override default temperature
-            
-        Returns:
-            Dict containing response, search_used, and search_results
-        """
-        result = {
-            'response': '',
-            'search_used': False,
-            'search_results': [],
-            'search_query': None
+    def get_tool_usage_info(self) -> Dict[str, Any]:
+        """Get information about tool usage in the last turn."""
+        return {
+            'tools_used': self._tools_used_this_turn,
+            'tool_calls': self._last_tool_calls,
+            'available_tools': [tool.name for tool in self.tools]
         }
-        
-        try:
-            # First, check if the prompt suggests a need for current information
-            should_search = self._should_use_web_search(prompt) if enable_search and self.web_search_enabled else False
-            
-            if should_search:
-                # Extract search query from the prompt
-                search_query = self._extract_search_query(prompt)
-                
-                if search_query:
-                    self.logger.info(f"Using web search for query: {search_query}")
-                    
-                    # Perform web search
-                    search_results = self.tavily_tool.search(
-                        query=search_query,
-                        max_results=max_search_results
-                    )
-                    
-                    if search_results:
-                        # Enhance prompt with search results
-                        enhanced_prompt = self._enhance_prompt_with_search_results(
-                            prompt, search_results
-                        )
-                        
-                        result['response'] = self.generate(
-                            enhanced_prompt,
-                            temperature=temperature
-                        )
-                        result['search_used'] = True
-                        result['search_results'] = search_results
-                        result['search_query'] = search_query
-                    else:
-                        # Fallback to regular generation if search fails
-                        result['response'] = self.generate(prompt, temperature=temperature)
-                else:
-                    # Couldn't extract search query, proceed normally
-                    result['response'] = self.generate(prompt, temperature=temperature)
-            else:
-                # No search needed, proceed with regular generation
-                result['response'] = self.generate(prompt, temperature=temperature)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"Generation with web search failed: {e}")
-            # Fallback to basic generation
-            result['response'] = self.generate(prompt, temperature=temperature)
-            return result
-    
-    def _should_use_web_search(self, prompt: str) -> bool:
-        """
-        Simple heuristic to determine if web search would be helpful.
-        In production, this could be more sophisticated or LLM-based.
-        """
-        search_indicators = [
-            'current', 'recent', 'latest', 'today', 'now', 'update',
-            'what is happening', 'news', 'recent developments',
-            'current events', 'what\'s new', 'breaking', 'trend'
-        ]
-        
-        prompt_lower = prompt.lower()
-        return any(indicator in prompt_lower for indicator in search_indicators)
-    
-    def _extract_search_query(self, prompt: str) -> Optional[str]:
-        """
-        Extract a search query from the prompt.
-        This is a simple implementation - could be enhanced with NER or LLM.
-        """
-        # Simple approach: use the prompt as the search query, cleaned up
-        # Remove common question words and make it more search-friendly
-        
-        query = prompt.lower()
-        
-        # Remove question words that don't help with search
-        remove_words = ['what', 'is', 'the', 'tell', 'me', 'about', 'can', 'you', 'please']
-        words = query.split()
-        filtered_words = [w for w in words if w not in remove_words]
-        
-        search_query = ' '.join(filtered_words[:8])  # Limit to 8 words
-        
-        return search_query if len(search_query) > 3 else prompt[:100]
-    
-    def _enhance_prompt_with_search_results(
-        self,
-        original_prompt: str,
-        search_results: List[Dict[str, Any]]
-    ) -> str:
-        """
-        Enhance the original prompt with web search results.
-        """
-        # Format search results
-        results_text = "Current information from web search:\n\n"
-        
-        for i, result in enumerate(search_results[:3], 1):
-            title = result.get('title', 'No title')
-            content = result.get('content', '')[:300] + "..." if len(result.get('content', '')) > 300 else result.get('content', '')
-            url = result.get('url', '')
-            
-            results_text += f"{i}. {title}\n{content}\nSource: {url}\n\n"
-        
-        # Combine with original prompt
-        enhanced_prompt = f"""Based on the current information provided below, please answer the following question:
-
-{results_text}
-
-Question: {original_prompt}
-
-Please provide a comprehensive answer using the current information above, and indicate what sources you're drawing from."""
-        
-        return enhanced_prompt
     
     def test_connection(self) -> bool:
         """Test if Ollama is responding."""
@@ -353,12 +346,16 @@ Please provide a comprehensive answer using the current information above, and i
     
     def test_web_search(self) -> bool:
         """Test if web search is working."""
-        if not self.web_search_enabled:
+        if not self.tools:
             return False
         
         try:
-            results = self.tavily_tool.search("test query", max_results=1)
-            return len(results) > 0
+            # Test by attempting to use the tool directly
+            for tool in self.tools:
+                if "tavily" in tool.name.lower():
+                    result = tool.invoke({"query": "test query"})
+                    return len(result) > 0 if isinstance(result, (list, str)) else True
+            return False
         except Exception as e:
             self.logger.error(f"Web search test failed: {e}")
             return False
@@ -369,8 +366,9 @@ Please provide a comprehensive answer using the current information above, and i
             'ollama_configured': True,
             'ollama_base_url': self.base_url,
             'ollama_model': self.model,
-            'web_search_enabled': self.web_search_enabled,
-            'tavily_configured': self.tavily_tool is not None,
+            'tools_enabled': len(self.tools) > 0,
+            'available_tools': [tool.name for tool in self.tools],
+            'tavily_configured': any("tavily" in tool.name.lower() for tool in self.tools),
             'connection_ok': self.test_connection(),
             'web_search_ok': self.test_web_search()
         }

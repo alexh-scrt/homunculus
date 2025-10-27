@@ -1,14 +1,17 @@
-"""Interactive chat interface for character agent system."""
+"""Enhanced interactive chat interface with dual-pane layout and real-time vitals."""
 
 import asyncio
 import json
 import os
+import threading
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 from rich.text import Text
+from rich.live import Live
 import sys
 
 # Add src to path for imports
@@ -17,40 +20,79 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
     from config.character_loader import CharacterLoader, CharacterConfigurationError
     from config.settings import get_settings
+    from config.logging_config import setup_logging, get_logger, log_character_session_start, log_character_session_end, log_system_info
     from character_agent import CharacterAgent
     from cli.debug_view import DebugView
+    from cli.vitals_display import VitalsDisplay
+    from cli.layout_manager import LayoutManager
+    from cli.command_handler import CommandHandler
 except ImportError:
     # Fallback imports for when running from different contexts
     from ..config.character_loader import CharacterLoader, CharacterConfigurationError
     from ..config.settings import get_settings
+    from ..config.logging_config import setup_logging, get_logger, log_character_session_start, log_character_session_end, log_system_info
     from ..character_agent import CharacterAgent
     from .debug_view import DebugView
+    from .vitals_display import VitalsDisplay
+    from .layout_manager import LayoutManager
+    from .command_handler import CommandHandler
 
 
 class ChatInterface:
-    """Interactive CLI for chatting with character agents."""
+    """Enhanced interactive CLI with dual-pane layout and real-time vitals."""
     
-    def __init__(self):
-        """Initialize the chat interface."""
+    def __init__(self, enable_vitals: bool = True, vitals_only: bool = False):
+        """Initialize the enhanced chat interface.
+        
+        Args:
+            enable_vitals: Whether to show vitals display (default True)
+            vitals_only: Whether to show only vitals without chat (default False)
+        """
+        # Initialize logging first
+        setup_logging()
+        self.logger = get_logger(__name__)
+        
         self.console = Console()
         self.debug_view = DebugView(self.console)
         self.settings = get_settings()
         self.character_loader = CharacterLoader()
         self.current_character: Optional[CharacterAgent] = None
         self.debug_mode = False
+        self.enable_vitals = enable_vitals
+        self.vitals_only = vitals_only
+        
+        self.logger.info(f"ChatInterface initialized - vitals_enabled: {enable_vitals}, vitals_only: {vitals_only}")
+        log_system_info()
+        
+        # Enhanced components
+        self.vitals_display = VitalsDisplay(self.console)
+        self.layout_manager = LayoutManager(self.console)
+        self.command_handler = CommandHandler(self)
+        
+        # State management
+        self.messages: List[Dict[str, str]] = []
         self.save_dir = Path("./data/saves")
         self.save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Input handling
+        self._input_queue = asyncio.Queue()
+        self._should_exit = False
     
-    async def run(self) -> None:
-        """Main entry point for the chat interface."""
+    async def run(self, character_id: Optional[str] = None) -> None:
+        """Main entry point for the enhanced chat interface.
+        
+        Args:
+            character_id: Optional character ID to load directly
+        """
         try:
-            self._display_welcome()
-            
-            # Character selection
-            character_id = await self._select_character()
             if not character_id:
-                self.console.print("[yellow]No character selected. Exiting.[/yellow]")
-                return
+                self._display_welcome()
+                
+                # Character selection
+                character_id = await self._select_character()
+                if not character_id:
+                    self.console.print("[yellow]No character selected. Exiting.[/yellow]")
+                    return
             
             # Load character
             character = await self._load_character(character_id)
@@ -60,16 +102,75 @@ class ChatInterface:
             
             self.current_character = character
             
-            # Main conversation loop
-            await self._conversation_loop()
+            # Log character session start
+            log_character_session_start(character_id, character.character_name)
+            
+            # Start appropriate interface mode
+            if self.vitals_only:
+                self.logger.info("Starting vitals-only mode")
+                await self._vitals_only_mode()
+            elif self.enable_vitals:
+                self.logger.info("Starting dual-pane conversation mode")
+                await self._dual_pane_conversation_loop()
+            else:
+                self.logger.info("Starting fallback conversation mode")
+                await self._conversation_loop()  # Fallback to original mode
             
         except KeyboardInterrupt:
+            self.logger.info("Chat interrupted by user (KeyboardInterrupt)")
             self.console.print("\n[yellow]Chat interrupted by user. Goodbye![/yellow]")
         except Exception as e:
+            self.logger.error(f"Unexpected error in chat interface: {e}", exc_info=True)
             self.debug_view.display_error(f"Unexpected error: {e}")
         finally:
             if self.current_character:
+                self.logger.info("Auto-saving character state before exit")
                 await self._auto_save()
+                log_character_session_end(self.current_character.character_id, self.current_character.character_name)
+    
+    async def _get_user_input_async(self) -> str:
+        """Get user input asynchronously (compatible with live display).
+        
+        For now, this is a simple implementation. In a full implementation,
+        you might want to use a more sophisticated async input system.
+        
+        Returns:
+            User input string
+        """
+        # This is a simplified version - in production you might want to use
+        # libraries like aioconsole or implement proper async input handling
+        loop = asyncio.get_event_loop()
+        
+        # Show input prompt and get input
+        try:
+            user_input = await loop.run_in_executor(
+                None, 
+                lambda: input()  # Basic input for now
+            )
+            return user_input
+        except EOFError:
+            return "/exit"
+        except KeyboardInterrupt:
+            return "/exit"
+    
+    async def _confirm_exit_async(self) -> bool:
+        """Async version of exit confirmation.
+        
+        Returns:
+            True if user confirms exit, False otherwise
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Ask for confirmation
+            self.console.print("\n[yellow]Are you sure you want to exit? (y/n)[/yellow]")
+            response = await loop.run_in_executor(
+                None,
+                lambda: input().lower().strip()
+            )
+            return response in ['y', 'yes', '1', 'true']
+        except (EOFError, KeyboardInterrupt):
+            return True
     
     def _display_welcome(self) -> None:
         """Display welcome message and instructions."""
@@ -156,8 +257,8 @@ class ChatInterface:
             
             # Create character agent
             character = CharacterAgent(
-                character_config=config,
-                settings=self.settings
+                character_id=character_id,
+                character_config=config
             )
             
             # Initialize the character
@@ -188,8 +289,152 @@ class ChatInterface:
             self.debug_view.display_error(f"Error loading character: {e}")
             return None
     
+    async def _dual_pane_conversation_loop(self) -> None:
+        """Enhanced conversation loop with dual-pane layout and live vitals."""
+        if not self.current_character:
+            return
+        
+        # Setup character info in layout
+        self.layout_manager.update_character_info(
+            self.current_character.character_name,
+            self.current_character.character_config.get('archetype', 'Unknown')
+        )
+        
+        # Initial vitals display
+        vitals_panel = self.vitals_display.render_vitals(self.current_character.state)
+        self.layout_manager.update_vitals(vitals_panel)
+        
+        # Start live display with proper input handling
+        with Live(
+            self.layout_manager.get_layout(),
+            console=self.console,
+            screen=False,  # Don't take over full screen to allow input
+            refresh_per_second=2  # Reduced refresh rate for better input handling
+        ) as live:
+            
+            self.layout_manager.update_input_prompt("Type your message...")
+            live.refresh()
+            
+            while not self._should_exit:
+                try:
+                    # Check for terminal resize before each interaction
+                    if self.layout_manager.refresh_terminal_size():
+                        # Terminal was resized, recreate layout
+                        self.layout_manager.resize_layout()
+                        live.update(self.layout_manager.get_layout())
+                    
+                    # Get user input using Rich's prompt (works better with Live)
+                    live.stop()  # Temporarily stop live updates for input
+                    self.console.print()  # Add some space
+                    try:
+                        user_input = Prompt.ask("[bold blue]💬 Message[/bold blue]")
+                    except (EOFError, KeyboardInterrupt):
+                        user_input = "/exit"
+                    live.start()  # Resume live updates
+                    
+                    if not user_input.strip():
+                        await asyncio.sleep(0.1)  # Small delay to prevent busy loop
+                        continue
+                    
+                    self.logger.debug(f"User input received: {user_input[:100]}...")
+                    
+                    # Handle commands
+                    if user_input.startswith('/'):
+                        self.logger.debug(f"Processing command: {user_input}")
+                        self.layout_manager.show_thinking_indicator()
+                        live.refresh()
+                        
+                        command_result = await self.command_handler.handle(user_input)
+                        if command_result == 'exit':
+                            self.logger.info("Exit command received")
+                            break
+                        continue
+                    
+                    # Show thinking indicator
+                    self.layout_manager.show_thinking_indicator()
+                    live.refresh()
+                    
+                    # Process message with character
+                    try:
+                        self.logger.debug("Starting character message processing")
+                        result = await self.current_character.process_message(
+                            user_message=user_input,
+                            context={'debug_mode': self.debug_mode}
+                        )
+                        
+                        # Add messages to history
+                        self.messages.append({'speaker': 'You', 'message': user_input})
+                        character_response = result.get('response_text', 'No response generated')
+                        self.logger.debug(f"Character response: {character_response[:100]}...")
+                        
+                        self.messages.append({
+                            'speaker': self.current_character.character_name,
+                            'message': character_response
+                        })
+                        
+                        # Update chat display
+                        self.layout_manager.update_chat_history(self.messages)
+                        
+                        # Update vitals display with new state
+                        vitals_panel = self.vitals_display.render_vitals(self.current_character.state)
+                        self.layout_manager.update_vitals(vitals_panel)
+                        
+                        # Update input prompt
+                        self.layout_manager.update_input_prompt("Type your message...")
+                        
+                        # Display debug info if enabled
+                        if self.debug_mode and 'debug_info' in result:
+                            # In dual-pane mode, we'll show debug info differently
+                            pass  # Debug info will be shown in vitals panel
+                        
+                        live.refresh()
+                        
+                    except Exception as e:
+                        self.logger.error(f"Error processing message: {e}", exc_info=True)
+                        self.layout_manager.show_error_message(f"Error processing message: {e}")
+                        live.refresh()
+                        await asyncio.sleep(2)  # Show error for 2 seconds
+                        self.layout_manager.update_input_prompt("Type your message...")
+                        live.refresh()
+                        continue
+                    
+                except KeyboardInterrupt:
+                    live.stop()
+                    if Confirm.ask("[yellow]Are you sure you want to exit?[/yellow]"):
+                        break
+                    live.start()
+                    continue
+                except Exception as e:
+                    self.layout_manager.show_error_message(f"Conversation error: {e}")
+                    live.refresh()
+                    await asyncio.sleep(2)
+                    continue
+    
+    async def _vitals_only_mode(self) -> None:
+        """Vitals-only display mode for monitoring character state."""
+        if not self.current_character:
+            return
+        
+        self.console.print("[bold cyan]Vitals-Only Mode - Monitoring Character State[/bold cyan]")
+        self.console.print("Press Ctrl+C to exit\n")
+        
+        try:
+            while not self._should_exit:
+                # Get current vitals
+                vitals_panel = self.vitals_display.render_detailed_vitals(self.current_character.state)
+                
+                # Clear screen and show vitals
+                self.console.clear()
+                self.console.print(vitals_panel)
+                
+                # Wait and refresh
+                await asyncio.sleep(1)  # Update every second in vitals-only mode
+                
+        except KeyboardInterrupt:
+            self.console.print("\n[yellow]Exiting vitals monitoring...[/yellow]")
+
     async def _conversation_loop(self) -> None:
-        """Main conversation loop."""
+        """Original conversation loop (fallback mode)."""
         if not self.current_character:
             return
         
@@ -223,7 +468,7 @@ class ChatInterface:
                     
                     # Display character response
                     character_name = self.current_character.character_name
-                    response = result.get('response', 'No response generated')
+                    response = result.get('response_text', 'No response generated')
                     
                     self.debug_view.display_message(
                         character_name, 

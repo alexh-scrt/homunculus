@@ -57,7 +57,7 @@ class MemoryAgent(BaseAgent):
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"MemoryAgent initialized for character {character_id}")
     
-    def consult(
+    async def consult(
         self,
         context: Dict[str, Any],
         character_state: CharacterState,
@@ -70,9 +70,9 @@ class MemoryAgent(BaseAgent):
         to provide rich context for the character's response.
         """
         # Run memory retrieval asynchronously
-        memory_data = asyncio.run(self._retrieve_all_relevant_memories(
+        memory_data = await self._retrieve_all_relevant_memories(
             user_message, context, character_state
-        ))
+        )
         
         # Build memory analysis prompt
         prompt = self._build_memory_prompt(
@@ -406,7 +406,8 @@ Provide 2-3 sentences on how the character's memories should shape their respons
         user_message: str,
         character_response: str,
         character_state: CharacterState,
-        web_search_data: Optional[Dict[str, Any]] = None
+        web_search_data: Optional[Dict[str, Any]] = None,
+        emotional_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Store the current interaction as a memory.
@@ -419,18 +420,33 @@ Provide 2-3 sentences on how the character's memories should shape their respons
             from memory.experience_module import create_experience_from_interaction
         
         try:
+            # Use emotional_context if provided, otherwise fallback to character state
+            if emotional_context:
+                emotional_state = emotional_context.get('emotional_tone', 'neutral')
+                additional_metadata = {
+                    'emotional_valence': self._calculate_interaction_valence(user_message, character_response),
+                    'intensity': self._calculate_interaction_intensity(user_message, character_response),
+                    'related_goals': [goal.get('goal_id') for goal in character_state.agent_states.get('goals', {}).get('active_goals', [])],
+                    'confidence_level': emotional_context.get('confidence_level', 0.5),
+                    'neurochemical_state': emotional_context.get('neurochemical_state', {}),
+                    'mood_state': emotional_context.get('mood_state', {})
+                }
+            else:
+                emotional_state = character_state.agent_states.get('mood', {}).get('current_state', 'neutral')
+                additional_metadata = {
+                    'emotional_valence': self._calculate_interaction_valence(user_message, character_response),
+                    'intensity': self._calculate_interaction_intensity(user_message, character_response),
+                    'related_goals': [goal.get('goal_id') for goal in character_state.agent_states.get('goals', {}).get('active_goals', [])]
+                }
+            
             # Create experience from interaction
             experience = await create_experience_from_interaction(
                 character_id=self.character_id,
                 user_message=user_message,
                 character_response=character_response,
-                emotional_state=character_state.agent_states.get('mood', {}).get('current_state', 'neutral'),
+                emotional_state=emotional_state,
                 web_search_data=web_search_data,
-                additional_metadata={
-                    'emotional_valence': self._calculate_interaction_valence(user_message, character_response),
-                    'intensity': self._calculate_interaction_intensity(user_message, character_response),
-                    'related_goals': [goal.get('goal_id') for goal in character_state.agent_states.get('goals', {}).get('active_goals', [])]
-                }
+                additional_metadata=additional_metadata
             )
             
             # Store the experience
@@ -480,6 +496,51 @@ Provide 2-3 sentences on how the character's memories should shape their respons
         # Combine factors
         intensity = (length_factor + intensity_factor) / 2
         return max(0.1, min(1.0, intensity))  # Minimum 0.1 to ensure some significance
+    
+    async def retrieve_relevant_experiences(
+        self,
+        query: str,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve relevant past experiences for the given query.
+        
+        This is the public interface used by CharacterAgent for memory recall.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of experiences to return
+            
+        Returns:
+            List of experience dictionaries with similarity scores
+        """
+        try:
+            # Use the experience module to retrieve similar experiences
+            experiences = await self.experience_module.retrieve_similar_experiences(
+                query_text=query,
+                n_results=limit,
+                time_window_days=90  # Look back 90 days for broader context
+            )
+            
+            # Format the results for the character agent
+            formatted_memories = []
+            for experience in experiences:
+                formatted_memory = {
+                    'experience_id': getattr(experience, 'experience_id', 'unknown'),
+                    'timestamp': getattr(experience, 'timestamp', 'unknown'),
+                    'description': getattr(experience, 'description', ''),
+                    'emotional_state': getattr(experience, 'emotional_state', 'neutral'),
+                    'similarity': getattr(experience, 'similarity_score', 0.0),
+                    'metadata': getattr(experience, 'metadata', {})
+                }
+                formatted_memories.append(formatted_memory)
+            
+            self.logger.debug(f"Retrieved {len(formatted_memories)} relevant experiences for query: '{query}'")
+            return formatted_memories
+            
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve relevant experiences: {e}")
+            return []
     
     def close(self):
         """Clean up memory module resources."""

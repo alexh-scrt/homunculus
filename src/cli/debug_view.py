@@ -128,9 +128,28 @@ class DebugView:
         self.console.print("\n[bold]Agent Consultation Results:[/bold]")
         
         for agent_type, agent_input in agent_data.items():
-            content = agent_input.get('content', '')
-            confidence = agent_input.get('confidence', 0.0)
-            priority = agent_input.get('priority', 5)
+            # Handle both AgentInput objects and dict fallbacks
+            try:
+                if hasattr(agent_input, 'content') and hasattr(agent_input, 'confidence'):
+                    # AgentInput object
+                    content = agent_input.content
+                    confidence = agent_input.confidence
+                    priority = agent_input.priority
+                elif isinstance(agent_input, dict):
+                    # Dictionary format
+                    content = agent_input.get('content', '')
+                    confidence = agent_input.get('confidence', 0.0)
+                    priority = agent_input.get('priority', 5)
+                else:
+                    # Unknown format, try to convert to string
+                    content = str(agent_input)
+                    confidence = 0.0
+                    priority = 5
+            except AttributeError as e:
+                # Safety fallback
+                content = f"Error displaying {agent_type}: {e}"
+                confidence = 0.0
+                priority = 5
             
             # Truncate long content
             display_content = content[:150] + "..." if len(content) > 150 else content
