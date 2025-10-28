@@ -17,10 +17,11 @@ async def main():
     
     parser = argparse.ArgumentParser(description="Simple Character Agent Chat Interface")
     parser.add_argument('--character', '-c', help='Character ID to load directly')
+    parser.add_argument('--user-id', '-u', default='anonymous', help='User ID for persistent conversations (default: anonymous)')
     
     args = parser.parse_args()
     
-    interface = SimpleChatInterface()
+    interface = SimpleChatInterface(user_id=args.user_id)
     await interface.run(character_id=args.character)
 
 

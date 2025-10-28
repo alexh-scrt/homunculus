@@ -16,18 +16,20 @@ try:
     from config.settings import get_settings
     from config.logging_config import setup_logging, get_logger, log_character_session_start, log_character_session_end, log_system_info
     from character_agent import CharacterAgent
+    from core.conversation_manager import ConversationManager
 except ImportError:
     # Fallback imports for when running from different contexts
     from ..config.character_loader import CharacterLoader, CharacterConfigurationError
     from ..config.settings import get_settings
     from ..config.logging_config import setup_logging, get_logger, log_character_session_start, log_character_session_end, log_system_info
     from ..character_agent import CharacterAgent
+    from ..core.conversation_manager import ConversationManager
 
 
 class SimpleChatInterface:
     """Simple command-line chat interface without Rich components or window management."""
     
-    def __init__(self):
+    def __init__(self, user_id: str = "anonymous"):
         """Initialize the simple chat interface."""
         # Initialize logging
         setup_logging()
@@ -39,12 +41,19 @@ class SimpleChatInterface:
         self.debug_mode = False
         self.streaming_enabled = True  # Enable streaming by default
         
-        self.logger.info("SimpleChatInterface initialized")
+        # User context for persistent conversations
+        self.user_id = user_id
+        self.conversation_manager = None  # Will be initialized when needed
+        
+        self.logger.info(f"SimpleChatInterface initialized for user: {self.user_id}")
         log_system_info()
         
         # State management
         self.save_dir = Path("./data/saves")
         self.save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize conversation manager
+        self._init_conversation_manager()
         
         # Simple commands (no scroll/pane commands)
         self.commands = {
@@ -55,6 +64,8 @@ class SimpleChatInterface:
             '/memory': 'Show recent memories or search [query]',
             '/goals': 'Show character goals', 
             '/mood': 'Show mood information',
+            '/conversations': 'List all your conversations',
+            '/history': 'Show conversation history [count]',
             '/save': 'Save character state [filename]',
             '/load': 'Load character state [filename]',
             '/reset': 'Reset character to initial state',
@@ -75,6 +86,15 @@ class SimpleChatInterface:
         print()
         print("Type '/help' for available commands or just start typing to chat!")
         print()
+    
+    def _init_conversation_manager(self) -> None:
+        """Initialize the conversation manager."""
+        try:
+            self.conversation_manager = ConversationManager()
+            self.logger.info("ConversationManager initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize ConversationManager: {e}")
+            self.conversation_manager = None
     
     def print_separator(self) -> None:
         """Print a simple separator."""
@@ -193,6 +213,12 @@ class SimpleChatInterface:
             # Initialize the character
             await character.initialize()
             
+            # Set user context for persistent conversations
+            character.character_state.set_user_context(self.user_id)
+            
+            # Load conversation history if available
+            await self._load_conversation_history(character, character_id)
+            
             print(f"Successfully loaded {config['name']}!")
             self.print_separator()
             print(f"You are now chatting with {config['name']} ({config['archetype']})")
@@ -211,6 +237,55 @@ class SimpleChatInterface:
         except Exception as e:
             print(f"Error loading character: {e}")
             return None
+    
+    async def _load_conversation_history(self, character: CharacterAgent, character_id: str) -> None:
+        """Load persistent conversation history for the character."""
+        if not self.conversation_manager:
+            return
+        
+        try:
+            # Check if conversation exists
+            if await self.conversation_manager.conversation_exists(self.user_id, character_id):
+                # Load recent messages (last 20 for working memory)
+                recent_messages = await self.conversation_manager.get_recent_messages(
+                    self.user_id, character_id, limit=20
+                )
+                
+                if recent_messages:
+                    # Replace the character's conversation history with loaded messages
+                    character.character_state.conversation_history = recent_messages
+                    print(f"📚 Loaded conversation history: {len(recent_messages)} recent messages")
+                    print("🔄 Continuing previous conversation...")
+                else:
+                    print("👋 Starting new conversation!")
+            else:
+                print("👋 Starting new conversation!")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to load conversation history: {e}")
+            print("⚠️ Could not load conversation history, starting fresh")
+    
+    async def _save_conversation_message(self, user_message: str, character_response: Optional[str] = None) -> None:
+        """Save the latest messages to persistent conversation storage."""
+        if not self.conversation_manager or not self.current_character:
+            return
+        
+        try:
+            character_id = self.current_character.character_id
+            
+            # Add user message to persistent storage
+            await self.conversation_manager.add_message_to_conversation(
+                self.user_id, character_id, "user", user_message
+            )
+            
+            # Add character response if available
+            if character_response:
+                await self.conversation_manager.add_message_to_conversation(
+                    self.user_id, character_id, "character", character_response
+                )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save conversation messages: {e}")
     
     async def conversation_loop(self) -> None:
         """Main conversation loop."""
@@ -274,6 +349,9 @@ class SimpleChatInterface:
                         if self.debug_mode and 'debug_info' in result:
                             self.display_debug_info(result['debug_info'])
                     
+                    # Save conversation to persistent storage
+                    await self._save_conversation_message(user_input, response if 'response' in locals() else None)
+                    
                     print()  # Add spacing
                     
                 except Exception as e:
@@ -323,6 +401,13 @@ class SimpleChatInterface:
             
             elif cmd == '/mood':
                 await self.show_mood()
+            
+            elif cmd == '/conversations':
+                await self.show_conversations()
+            
+            elif cmd == '/history':
+                count = int(args) if args.isdigit() else 50
+                await self.show_conversation_history(count)
             
             elif cmd == '/save':
                 await self.save_character_state(args)
@@ -708,6 +793,69 @@ class SimpleChatInterface:
             
         except Exception as e:
             print(f"Error displaying status: {e}")
+    
+    async def show_conversations(self) -> None:
+        """Show all conversations for the current user."""
+        if not self.conversation_manager:
+            print("Conversation manager not available")
+            return
+        
+        try:
+            conversations = await self.conversation_manager.get_user_conversations(self.user_id)
+            
+            if not conversations:
+                print(f"\n=== NO CONVERSATIONS FOUND ===")
+                print(f"User: {self.user_id}")
+                print("You haven't had any conversations yet!")
+                return
+            
+            print(f"\n=== YOUR CONVERSATIONS ===")
+            print(f"User: {self.user_id}")
+            print()
+            
+            for conv in conversations:
+                print(f"Character: {conv['character_id']}")
+                print(f"Messages: {conv['message_count']}")
+                print(f"Last Updated: {conv['last_updated']}")
+                print("-" * 40)
+            
+            print(f"Total Conversations: {len(conversations)}")
+            print()
+            
+        except Exception as e:
+            print(f"Error displaying conversations: {e}")
+    
+    async def show_conversation_history(self, count: int = 50) -> None:
+        """Show conversation history for current character."""
+        if not self.conversation_manager or not self.current_character:
+            print("No active character or conversation manager not available")
+            return
+        
+        try:
+            character_id = self.current_character.character_id
+            history = await self.conversation_manager.load_conversation_history(self.user_id, character_id)
+            
+            if not history:
+                print(f"\n=== NO CONVERSATION HISTORY ===")
+                print("No previous messages found for this conversation.")
+                return
+            
+            # Show last 'count' messages
+            messages_to_show = history[-count:] if len(history) > count else history
+            
+            print(f"\n=== CONVERSATION HISTORY ===")
+            print(f"Showing last {len(messages_to_show)} of {len(history)} messages")
+            print(f"User: {self.user_id} | Character: {character_id}")
+            print()
+            
+            for msg in messages_to_show:
+                role_display = "You" if msg['role'] == 'user' else self.current_character.character_name
+                timestamp = msg.get('timestamp', 'Unknown time')
+                print(f"[{timestamp}] {role_display}: {msg['message']}")
+                print()
+            
+        except Exception as e:
+            print(f"Error displaying conversation history: {e}")
     
     async def display_streaming_response(self, character_name: str, response_stream) -> str:
         """Display a streaming response character by character."""

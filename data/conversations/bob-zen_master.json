@@ -1,0 +1,20 @@
+{
+  "conversation_id": "bob-zen_master",
+  "user_id": "bob",
+  "character_id": "zen_master",
+  "created": "2025-10-27T22:48:04.093958",
+  "last_updated": "2025-10-27T22:48:04.093960",
+  "message_count": 1,
+  "messages": [
+    {
+      "role": "user",
+      "message": "Hey there\\!",
+      "timestamp": "2025-10-27T22:48:04.093939"
+    }
+  ],
+  "metadata": {
+    "user_first_message": "2025-10-27T22:48:04.093939",
+    "last_message": "2025-10-27T22:48:04.093939",
+    "character_name": null
+  }
+}

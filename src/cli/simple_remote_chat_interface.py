@@ -38,14 +38,15 @@ except ImportError:
 class SimpleRemoteChatInterface(SimpleChatInterface):
     """Simple remote chat interface that connects to character agent server."""
     
-    def __init__(self, server_url: str = "ws://localhost:8765", fallback_to_local: bool = True):
+    def __init__(self, server_url: str = "ws://localhost:8765", fallback_to_local: bool = True, user_id: str = "anonymous"):
         """Initialize the simple remote chat interface.
         
         Args:
             server_url: WebSocket URL of character agent server
             fallback_to_local: Whether to fallback to local mode if server unavailable
+            user_id: User ID for persistent conversations
         """
-        super().__init__()
+        super().__init__(user_id=user_id)
         
         # Connection settings
         self.server_url = server_url

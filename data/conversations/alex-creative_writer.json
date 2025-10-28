@@ -1,0 +1,20 @@
+{
+  "conversation_id": "alex-creative_writer",
+  "user_id": "alex",
+  "character_id": "creative_writer",
+  "created": "2025-10-27T22:48:04.094652",
+  "last_updated": "2025-10-27T22:48:04.094653",
+  "message_count": 1,
+  "messages": [
+    {
+      "role": "user",
+      "message": "Write me a story\\!",
+      "timestamp": "2025-10-27T22:48:04.094641"
+    }
+  ],
+  "metadata": {
+    "user_first_message": "2025-10-27T22:48:04.094641",
+    "last_message": "2025-10-27T22:48:04.094641",
+    "character_name": null
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "conversation_id": "charlie-zen_master",
+  "user_id": "charlie",
+  "character_id": "zen_master",
+  "created": "2025-10-27T22:48:04.094337",
+  "last_updated": "2025-10-27T22:48:04.094338",
+  "message_count": 1,
+  "messages": [
+    {
+      "role": "user",
+      "message": "Greetings\\!",
+      "timestamp": "2025-10-27T22:48:04.094315"
+    }
+  ],
+  "metadata": {
+    "user_first_message": "2025-10-27T22:48:04.094315",
+    "last_message": "2025-10-27T22:48:04.094315",
+    "character_name": null
+  }
+}

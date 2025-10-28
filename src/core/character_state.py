@@ -17,6 +17,10 @@ class CharacterState:
     character_id: str
     last_updated: datetime
     
+    # User context for persistent conversations
+    user_id: str = "anonymous"
+    conversation_id: str = ""
+    
     # Core character configuration (loaded from YAML, mostly static)
     name: str = ""
     archetype: str = ""
@@ -109,8 +113,19 @@ class CharacterState:
                 }
             }
     
+    def set_user_context(self, user_id: str) -> None:
+        """Set user context and generate conversation ID."""
+        self.user_id = user_id
+        self.conversation_id = self._generate_conversation_id()
+    
+    def _generate_conversation_id(self) -> str:
+        """Generate conversation ID from user and character IDs."""
+        safe_user_id = "".join(c for c in self.user_id if c.isalnum() or c in '-_').lower()
+        safe_character_id = "".join(c for c in self.character_id if c.isalnum() or c in '-_').lower()
+        return f"{safe_user_id}-{safe_character_id}"
+    
     def add_to_history(self, role: str, message: str) -> None:
-        """Add message to conversation history."""
+        """Add message to conversation history (working memory only)."""
         self.conversation_history.append({
             'role': role,  # 'user' or 'character'
             'message': message,

@@ -1,0 +1,93 @@
+{
+  "created": "2025-10-27T22:47:36.280946",
+  "conversations": {
+    "alex-zen_master": {
+      "user_id": "alex",
+      "character_id": "zen_master",
+      "message_count": 1,
+      "last_updated": "2025-10-27T22:47:36.281192"
+    },
+    "bob-zen_master": {
+      "user_id": "bob",
+      "character_id": "zen_master",
+      "message_count": 1,
+      "last_updated": "2025-10-27T22:48:04.094075"
+    },
+    "charlie-zen_master": {
+      "user_id": "charlie",
+      "character_id": "zen_master",
+      "message_count": 1,
+      "last_updated": "2025-10-27T22:48:04.094414"
+    },
+    "alex-creative_writer": {
+      "user_id": "alex",
+      "character_id": "creative_writer",
+      "message_count": 1,
+      "last_updated": "2025-10-27T22:48:04.094727"
+    },
+    "alex-ada_lovelace": {
+      "user_id": "alex",
+      "character_id": "ada_lovelace",
+      "message_count": 38,
+      "last_updated": "2025-10-28T02:32:55.709494"
+    },
+    "alex-tech_enthusiast": {
+      "user_id": "alex",
+      "character_id": "tech_enthusiast",
+      "message_count": 6,
+      "last_updated": "2025-10-28T02:39:47.378019"
+    }
+  },
+  "users": {
+    "alex": {
+      "conversations": [
+        "alex-zen_master",
+        "alex-creative_writer",
+        "alex-ada_lovelace",
+        "alex-tech_enthusiast"
+      ],
+      "first_seen": "2025-10-27T22:47:36.281196"
+    },
+    "bob": {
+      "conversations": [
+        "bob-zen_master"
+      ],
+      "first_seen": "2025-10-27T22:48:04.094078"
+    },
+    "charlie": {
+      "conversations": [
+        "charlie-zen_master"
+      ],
+      "first_seen": "2025-10-27T22:48:04.094428"
+    }
+  },
+  "characters": {
+    "zen_master": {
+      "conversations": [
+        "alex-zen_master",
+        "bob-zen_master",
+        "charlie-zen_master"
+      ],
+      "first_seen": "2025-10-27T22:47:36.281197"
+    },
+    "creative_writer": {
+      "conversations": [
+        "alex-creative_writer"
+      ],
+      "first_seen": "2025-10-27T22:48:04.094731"
+    },
+    "ada_lovelace": {
+      "conversations": [
+        "alex-ada_lovelace"
+      ],
+      "first_seen": "2025-10-27T22:53:36.815890"
+    },
+    "tech_enthusiast": {
+      "conversations": [
+        "alex-tech_enthusiast"
+      ],
+      "first_seen": "2025-10-28T02:36:15.243539"
+    }
+  },
+  "last_updated": "2025-10-28T02:39:47.378024"
+}
