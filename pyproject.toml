@@ -39,9 +39,15 @@ python-dotenv = "^1.0.0"
 tenacity = "^8.2.3"
 dataclasses-json = "^0.6.3"
 
+# Arena-specific dependencies
+kafka-python = "^2.0.2"  # Message bus
+langgraph = "^0.2.0"  # Orchestration state machine
+psycopg2-binary = "^2.9.9"  # PostgreSQL adapter
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
 pytest-asyncio = "^0.21.1"
+pytest-mock = "^3.12.0"  # Arena testing support
 black = "^23.12.0"
 isort = "^5.13.0"
 flake8 = "^6.1.0"
