@@ -61,7 +61,7 @@ class NarratorAgent(LLMAgent):
         self.recent_accusations: List[Message] = []
         self.recent_eliminations: List[str] = []
         
-        # System prompt for narrator
+        # System prompt for narrator with anti-formulaic guidelines
         self.system_prompt = """You are the Narrator for an Arena game where AI agents compete to solve problems.
 Your role is to:
 1. Provide clear, concise summaries of the discussion
@@ -70,12 +70,20 @@ Your role is to:
 4. Provide context when needed
 5. Maintain engagement without bias
 
+CRITICAL VOICE REQUIREMENTS:
+- NEVER use formulaic beginnings like "As we continue to explore", "Building on the discussion", "Moving forward"
+- NEVER use repetitive transitions like "Furthermore", "Additionally", "Moreover" to start sentences
+- START each narration with varied, engaging openings that capture the current moment
+- AVOID predictable patterns - vary your narrative voice and structure
+- Use dynamic, situational language that reflects the actual state of the discussion
+
 Style guidelines:
 - Be objective and fair to all participants
-- Use vivid but professional language
+- Use vivid but professional language with varied sentence structures
 - Keep summaries under 200 words unless critical
 - Focus on substance over drama
-- Highlight collaborative moments and conflicts equally"""
+- Highlight collaborative moments and conflicts equally
+- Vary your narrative style - sometimes dramatic, sometimes analytical, sometimes observational"""
     
     async def initialize(self) -> None:
         """Initialize the Narrator agent."""
@@ -230,7 +238,7 @@ Style guidelines:
         # Build context for LLM
         contributions_text = self._format_contributions()
         
-        prompt = f"""Summarize the recent discussion in the Arena game.
+        prompt = f"""Provide a dynamic narrative summary of the recent Arena discussion.
 
 Recent contributions:
 {contributions_text}
@@ -238,13 +246,18 @@ Recent contributions:
 Recent accusations: {len(self.recent_accusations)}
 Recent eliminations: {len(self.recent_eliminations)}
 
-Provide a concise summary that:
-1. Captures the main ideas discussed
-2. Notes any emerging consensus or conflicts
-3. Highlights standout contributions
-4. Sets context for what comes next
+CREATE A UNIQUE SUMMARY that:
+1. Opens with a fresh perspective on the current discussion state
+2. Captures the main ideas WITHOUT using formulaic transitions
+3. Notes emerging consensus or conflicts using varied language
+4. Highlights standout contributions with specific details
+5. Sets context for what comes next using engaging narrative voice
 
-Keep it under 200 words."""
+VARY YOUR APPROACH - be dramatic when tensions are high, analytical when breakthroughs occur, observational when building consensus.
+AVOID: "As we continue", "Building on", "Moving forward", "Furthermore", "Additionally"
+USE: Dynamic openings that reflect the actual discussion dynamics
+
+Keep under 200 words with varied sentence structures."""
         
         # Generate summary
         summary = await self.call_llm(prompt, self.system_prompt)
@@ -279,16 +292,21 @@ Keep it under 200 words."""
         Returns:
             Narration message
         """
-        prompt = f"""An accusation has been made in the Arena game.
+        prompt = f"""Create unique dramatic narration for this Arena accusation.
 
 Accuser: {accusation_message.sender_name}
 Accused: {accusation_message.metadata.get('accused_name', 'Unknown')}
 Claim: {accusation_message.content}
 
-Provide brief, dramatic narration (2-3 sentences) that:
-1. Captures the tension of the moment
-2. Remains neutral about the validity
-3. Sets up anticipation for the judge's verdict"""
+CREATE VARIED DRAMATIC NARRATION (2-3 sentences) that:
+1. Opens with an unexpected angle on the tension
+2. Captures the specific dynamics of THIS accusation
+3. Remains neutral while building anticipation
+4. Uses fresh language - avoid cliché phrases
+
+VARY YOUR STYLE: Sometimes focus on the psychology, sometimes the stakes, sometimes the strategic implications.
+AVOID: "The tension rises", "A dramatic moment", "All eyes turn"
+USE: Specific, situational language that reflects the unique aspects of this accusation"""
         
         narration = await self.call_llm(prompt, self.system_prompt)
         
@@ -506,18 +524,23 @@ Provide a compelling final summary (250-300 words) that:
         else:
             activity_text = "The game has just begun with agents preparing their strategies."
         
-        prompt = f"""Provide brief narrative commentary on the current state of the Arena game.
+        prompt = f"""Create fresh contextual commentary for the current Arena state.
 
 Current turn: {current_turn}
 Recent activity:
 {activity_text}
 
-Provide 1-2 sentences that:
-1. Capture the current dynamic between agents
-2. Set the stage for what comes next
-3. Maintain engagement without taking sides
+GENERATE UNIQUE COMMENTARY (1-2 sentences) that:
+1. Opens with a distinctive observation about the current dynamics
+2. Captures the specific strategic interplay happening NOW
+3. Sets anticipation without formulaic language
+4. Reflects the actual conversation flow and energy
 
-Keep it under 100 words and focus on the strategic interplay."""
+VARY YOUR FOCUS: strategic positioning, intellectual tension, collaborative momentum, or competitive dynamics.
+AVOID: "The discussion continues", "As agents deliberate", "Moving into the next phase"
+USE: Specific observations about what's actually happening in this moment
+
+Keep under 100 words with varied narrative voice."""
         
         commentary = await self.call_llm(prompt, self.system_prompt)
         

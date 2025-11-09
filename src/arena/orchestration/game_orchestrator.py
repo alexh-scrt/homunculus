@@ -24,6 +24,7 @@ from datetime import datetime
 from enum import Enum
 
 from ..config.logging_config import setup_arena_logging, ArenaLogger
+from ..controllers.progression_controller import ArenaProgressionOrchestrator, ProgressionConfig
 
 try:
     from langgraph.graph import StateGraph, END
@@ -102,6 +103,13 @@ class OrchestratorConfig:
     timeout_seconds: int = 300
     retry_attempts: int = 3
     recursion_limit: int = 250  # LangGraph recursion limit - configurable like talks project
+    
+    # Anti-repetition settings
+    enable_progression_control: bool = True
+    progression_cycles_threshold: int = 2
+    progression_max_consequence_tests: int = 2
+    progression_redundancy_threshold: float = 0.85
+    progression_synthesis_interval: int = 8
 
 
 class GameOrchestrator:
@@ -163,6 +171,19 @@ class GameOrchestrator:
         # Initialize seed question (will be set by start_game if provided)
         self.seed_question: Optional[str] = None
         set_arena_logger(self.arena_logger)
+        
+        # Initialize progression control system
+        if config.enable_progression_control:
+            progression_config = ProgressionConfig(
+                cycles_threshold=config.progression_cycles_threshold,
+                max_consequence_tests=config.progression_max_consequence_tests,
+                redundancy_threshold=config.progression_redundancy_threshold,
+                synthesis_interval=config.progression_synthesis_interval,
+                enable_progression=True
+            )
+            self.progression_orchestrator = ArenaProgressionOrchestrator(progression_config)
+        else:
+            self.progression_orchestrator = None
     
     def _build_graph(self) -> StateGraph:
         """
@@ -436,7 +457,7 @@ class GameOrchestrator:
             return state
     
     async def _agent_action_node(self, state: GameState) -> GameState:
-        """Execute agent action."""
+        """Execute agent action with progression control."""
         agent_id = state["current_speaker"]
         if not agent_id or agent_id not in self.agents:
             return state
@@ -458,7 +479,81 @@ class GameOrchestrator:
                 "seed_question": self.seed_question  # Add seed question/topic for agents
             }
             
-            message = await agent.generate_action(context)
+            # Enhanced validation loop like talks project - retry with better prompts
+            message = None
+            max_attempts = 3
+            
+            for attempt in range(max_attempts):
+                candidate_message = await agent.generate_action(context)
+                
+                if not candidate_message:
+                    logger.debug(f"Agent {agent_id} generated no response on attempt {attempt + 1}")
+                    break
+                
+                if self.progression_orchestrator:
+                    # Check for redundancy and progression issues (candidate content never logged at visible level)
+                    progression_result = await self.progression_orchestrator.process_turn(
+                        agent_id, candidate_message.content, {
+                            "turn": state["turn"],
+                            "phase": state["phase"],
+                            "game_context": context,
+                            "attempt": attempt
+                        }
+                    )
+                    
+                    # If response is acceptable, use it
+                    if progression_result.get("allow_response", True):
+                        message = candidate_message
+                        break
+                    else:
+                        # Log internally but don't show to users - blocked responses should be invisible
+                        logger.debug(f"Attempt {attempt + 1}: Blocked response from {agent_id} - {progression_result.get('reason', 'unknown')}")
+                        
+                        # If not the last attempt, enhance context with specific feedback
+                        if attempt < max_attempts - 1:
+                            # Get feedback on what's wrong
+                            feedback = progression_result.get("feedback", "")
+                            if feedback:
+                                # Enhance context with specific guidance for next attempt
+                                context["response_feedback"] = f"Previous response was blocked: {feedback}. Please provide a more substantive response that either builds meaningfully on previous ideas OR proposes genuinely new approaches."
+                                context["avoid_repetition"] = True
+                                context["require_entailment"] = True
+                                logger.debug(f"Enhanced context for {agent_id} retry: {feedback[:100]}...")
+                else:
+                    # No progression orchestrator, accept the message
+                    message = candidate_message
+                    break
+            
+            # If we couldn't get a good response after retries, create intervention
+            if not message and self.progression_orchestrator:
+                logger.debug(f"Failed to get acceptable response from {agent_id} after {max_attempts} attempts - inserting guidance intervention")
+                
+                # Create intervention to guide discussion (this IS shown to users as it helps guide the conversation)
+                intervention_message = Message(
+                    sender_id="system",
+                    sender_name="Arena System",
+                    content="The discussion appears to be cycling through similar ideas. Let's focus on either: 1) Adding concrete implications, predictions, or action steps to existing ideas, OR 2) Introducing genuinely new business concepts not yet discussed.",
+                    message_type="commentary"
+                )
+                state["messages"].append(intervention_message.to_dict())
+                logger.info(f"Inserted guidance intervention due to repeated blocked responses from {agent_id}")
+                return state
+            
+            # Log successful response approval (only when we got an approved message)
+            elif message and self.progression_orchestrator:
+                logger.debug(f"Response from {agent_id} approved after validation")
+                
+                # Process any interventions (consequence tests, pivots, etc.)
+                pending_interventions = self.progression_orchestrator.get_pending_interventions()
+                for intervention in pending_interventions:
+                    intervention_message = Message(
+                        sender_id=intervention["speaker"],
+                        sender_name=intervention["speaker"],
+                        content=intervention["content"], 
+                        message_type="commentary"
+                    )
+                    state["messages"].append(intervention_message.to_dict())
+                    logger.info(f"Injected {intervention['metadata']['intervention']} intervention")
             
             if message:
                 state["messages"].append(message.to_dict())

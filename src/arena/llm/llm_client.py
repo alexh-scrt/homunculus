@@ -43,6 +43,7 @@ except ImportError:
 # Arena settings
 try:
     from ..config.arena_settings import settings
+    from .dynamic_parameters import get_llm_parameters
 except ImportError:
     settings = None
 
@@ -143,6 +144,17 @@ class ArenaLLMClient:
         self.conversation_history: List[Dict[str, str]] = []
         self.max_history = 20
     
+    def get_dynamic_llm_params(self, agent_type: str, agent_name: str = "", game_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Get dynamic LLM parameters based on agent type and game context"""
+        try:
+            return get_llm_parameters(agent_type, agent_name, game_context)
+        except NameError:
+            # Fallback if dynamic parameters not available
+            return {
+                "temperature": self.temperature,
+                "max_tokens": 1000
+            }
+    
     def _setup_tools(self) -> List[BaseTool]:
         """Setup tools for the agent, based on talks project approach."""
         tools = []
@@ -176,73 +188,87 @@ class ArenaLLMClient:
         
         return tools
     
-    async def _process_tool_calls(self, response, messages: List) -> str:
-        """Process tool calls in LLM response, based on talks project approach."""
-        if not hasattr(response, 'tool_calls') or not response.tool_calls:
-            return strip_reasoning(response.content)
+    async def _process_tool_calls_loop(self, response, messages: List, llm_instance=None, max_iterations: int = 3) -> str:
+        """
+        Process tool calls in a loop as suggested by user.
         
-        # Track tool usage
-        self._last_tool_calls = response.tool_calls
-        self._tools_used_this_turn = True
+        Implementation of: 
+        while:
+           llm call
+           check for tool calls
+              execute tool calls 
+              add ToolMessage
+        """
+        if llm_instance is None:
+            llm_instance = self.llm
         
-        # Process each tool call
-        tool_results = []
-        for tool_call in response.tool_calls:
-            tool_name = tool_call['name']
-            tool_args = tool_call['args']
-            
-            # Find and execute the tool
-            for tool in self.tools:
-                if tool.name == tool_name:
-                    try:
-                        result = await tool.ainvoke(tool_args)
-                        tool_results.append(result)
-                        logger.info(f"🔍 Arena agent used {tool_name}: {tool_args.get('query', 'N/A')}")
-                    except Exception as e:
-                        logger.error(f"Tool execution failed: {e}")
-                        tool_results.append(f"Tool error: {str(e)}")
+        # Initialize conversation with original messages
+        current_messages = messages.copy()
+        current_response = response
+        iterations = 0
         
-        # If we have tool results, generate final response incorporating them
-        if tool_results:
-            # Create a comprehensive prompt that includes the tool results
-            tool_info = "\n".join([f"Search result: {result}" for result in tool_results])
+        while iterations < max_iterations:
+            iterations += 1
+            logger.debug(f"Tool call processing iteration {iterations}")
             
-            # Create new prompt that explicitly asks for a response incorporating the tool results
-            enhanced_prompt = f"""Based on the following research information, please provide a comprehensive answer:
-
-{tool_info}
-
-Original question: {messages[-1].content if messages else ''}
-
-Please provide a detailed, factual response incorporating the above information."""
+            # Check for tool calls in current response
+            if not hasattr(current_response, 'tool_calls') or not current_response.tool_calls:
+                # No more tool calls - return the content
+                return strip_reasoning(current_response.content)
             
-            # Create fresh conversation with the enhanced prompt using simple LLM (no tools)
-            final_messages = [
-                messages[0] if messages else SystemMessage(content="You are a helpful assistant."),
-                HumanMessage(content=enhanced_prompt)
-            ]
+            # Track tool usage
+            self._last_tool_calls = current_response.tool_calls
+            self._tools_used_this_turn = True
+            logger.info(f"Processing {len(current_response.tool_calls)} tool calls in iteration {iterations}")
             
-            final_response = await self.simple_llm.ainvoke(final_messages)
-            final_content = strip_reasoning(final_response.content)
-            
-            # If still empty, try a more direct approach
-            if not final_content or len(final_content.strip()) < 10:
-                logger.warning("Enhanced response still empty, trying direct synthesis")
+            # Execute each tool call and add ToolMessage
+            for tool_call in current_response.tool_calls:
+                tool_name = tool_call['name']
+                tool_args = tool_call['args']
+                tool_call_id = tool_call.get('id', f"call_{iterations}_{tool_name}")
                 
-                # Create a very direct synthesis prompt
-                synthesis_prompt = f"Please summarize and answer based on this information: {tool_info[:1000]}"
-                synthesis_messages = [
-                    SystemMessage(content="You are a helpful assistant that provides clear, factual summaries."),
-                    HumanMessage(content=synthesis_prompt)
-                ]
+                # Find and execute the tool
+                tool_result = None
+                for tool in self.tools:
+                    if tool.name == tool_name:
+                        try:
+                            tool_result = await tool.ainvoke(tool_args)
+                            logger.info(f"🔍 Executed {tool_name}: {tool_args.get('query', 'N/A')}")
+                            break
+                        except Exception as e:
+                            tool_result = f"Tool error: {str(e)}"
+                            logger.error(f"Tool execution failed: {e}")
+                            break
                 
-                synthesis_response = await self.simple_llm.ainvoke(synthesis_messages)
-                final_content = strip_reasoning(synthesis_response.content)
+                if tool_result is None:
+                    tool_result = f"Tool {tool_name} not found"
+                    logger.warning(f"Tool {tool_name} not found in available tools")
+                
+                # Add ToolMessage to conversation (LangChain format)
+                from langchain_core.messages import ToolMessage
+                tool_message = ToolMessage(
+                    content=str(tool_result),
+                    tool_call_id=tool_call_id,
+                    name=tool_name
+                )
+                current_messages.append(tool_message)
             
-            logger.debug(f"Tool-enhanced response: {len(final_content)} chars")
-            return final_content
+            # Make another LLM call with the updated conversation including tool results
+            try:
+                current_response = await llm_instance.ainvoke(current_messages)
+                logger.debug(f"LLM call iteration {iterations} completed")
+            except Exception as e:
+                logger.error(f"LLM call failed in iteration {iterations}: {e}")
+                # Return best response we have so far
+                return strip_reasoning(current_response.content) if hasattr(current_response, 'content') else "Error processing response"
         
-        return strip_reasoning(response.content)
+        # Max iterations reached - return final response
+        logger.warning(f"Max tool call iterations ({max_iterations}) reached")
+        return strip_reasoning(current_response.content)
+    
+    async def _process_tool_calls(self, response, messages: List, llm_instance=None) -> str:
+        """Legacy method that now calls the enhanced loop version"""
+        return await self._process_tool_calls_loop(response, messages, llm_instance)
     
     async def generate_character_response(
         self,
@@ -251,11 +277,59 @@ Please provide a detailed, factual response incorporating the above information.
         prompt: str,
         context: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Generate a character-appropriate response using tool calling."""
+        """Generate a character-appropriate response using tool calling with dynamic parameters."""
         
         # Reset tool usage tracking
         self._last_tool_calls = []
         self._tools_used_this_turn = False
+        
+        # Get dynamic LLM parameters based on context
+        dynamic_params = self.get_dynamic_llm_params("character", character_name, context)
+        
+        # Create a new LLM instance with dynamic parameters if they differ significantly
+        current_temp = getattr(self.llm, 'temperature', self.temperature)
+        new_temp = dynamic_params.get('temperature', current_temp)
+        
+        # Check if any parameters differ significantly to warrant new LLM instance
+        needs_new_llm = (
+            abs(new_temp - current_temp) > 0.05 or  # Temperature difference
+            dynamic_params.get('repeat_penalty') is not None or  # Has Ollama-specific params
+            dynamic_params.get('top_p') is not None or
+            dynamic_params.get('top_k') is not None
+        )
+        
+        if needs_new_llm:
+            # Create temporary LLM with dynamic parameters including Ollama-specific ones
+            temp_llm_params = {
+                "model": self.model,
+                "temperature": new_temp
+            }
+            
+            # Add Ollama-specific parameters if they exist
+            for ollama_param in ['repeat_penalty', 'top_p', 'top_k', 'num_predict']:
+                if ollama_param in dynamic_params and dynamic_params[ollama_param] is not None:
+                    temp_llm_params[ollama_param] = dynamic_params[ollama_param]
+            
+            try:
+                temp_llm = ChatOllama(**temp_llm_params)
+                if self.tools:
+                    temp_llm = temp_llm.bind_tools(self.tools)
+                temp_simple_llm = ChatOllama(**temp_llm_params)
+                
+                param_desc = f"temp={new_temp}"
+                if dynamic_params.get('repeat_penalty'):
+                    param_desc += f", repeat_penalty={dynamic_params['repeat_penalty']}"
+                if dynamic_params.get('top_p'):
+                    param_desc += f", top_p={dynamic_params['top_p']}"
+                logger.debug(f"Using dynamic parameters for {character_name}: {param_desc}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to create dynamic LLM: {e}, using default")
+                temp_llm = self.llm
+                temp_simple_llm = self.simple_llm
+        else:
+            temp_llm = self.llm
+            temp_simple_llm = self.simple_llm
         
         # Build character-specific system prompt
         character_info = self.character_prompts.get(
@@ -305,11 +379,11 @@ Current Context: {json.dumps(context) if context else 'No additional context'}""
                 HumanMessage(content=prompt)
             ]
             
-            # Generate response with potential tool calls
-            response = await self.llm.ainvoke(messages)
+            # Generate response with potential tool calls using dynamic parameters
+            response = await temp_llm.ainvoke(messages)
             
-            # Process any tool calls
-            content = await self._process_tool_calls(response, messages)
+            # Process any tool calls (update _process_tool_calls to use temp_simple_llm)
+            content = await self._process_tool_calls(response, messages, temp_simple_llm)
             content = content.strip()
             
             # Track conversation

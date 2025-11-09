@@ -21,6 +21,7 @@ from datetime import datetime
 import json
 
 from .base_agent import LLMAgent, AgentConfig, AgentRole
+from .style_transfer import ArenaStyleTransferAgent, PersonalityType
 from ..models import Message, MessageType, AgentState
 from ..models.homunculus_integration import (
     HomunculusCharacterProfile,
@@ -79,6 +80,13 @@ class CharacterAgent(LLMAgent):
         
         # Strategy and memory
         self.current_strategy = "balanced"
+        
+        # Style transfer system (based on talks project)
+        self.style_transfer = ArenaStyleTransferAgent()
+        self.personality_type = self.style_transfer.get_character_personality(config.agent_id)
+        
+        # Track tool usage for style transfer
+        self._last_used_tools = False
         self.contribution_history: List[str] = []
         self.interaction_history: Dict[str, List[str]] = {}
         
@@ -220,7 +228,22 @@ Your response:"""
             else:
                 prompt = f"As {self.character_profile.character_name}, start a meaningful discussion based on your personality and expertise. What would you like to explore or propose?"
         
-        contribution = await self.call_llm(prompt, self.system_prompt)
+        # Generate initial response
+        raw_contribution = await self.call_llm(prompt, self.system_prompt)
+        
+        # Apply style transfer to ensure personalized voice and eliminate formulaic language
+        contribution = self.style_transfer.transfer_to_character_voice(
+            response=raw_contribution,
+            personality_type=self.personality_type,
+            character_name=self.character_profile.character_name,
+            used_tools=self._last_used_tools
+        )
+        
+        # Self-assessment: check contribution quality against conversation store
+        contribution = await self._self_assess_contribution(contribution, context)
+        
+        # Reset tool usage tracking
+        self._last_used_tools = False
         
         # Track contribution
         self.contribution_history.append(contribution)
@@ -458,6 +481,9 @@ Defend yourself with logic and evidence. Maintain your character's dignity."""
         traits = ", ".join(self.character_profile.personality_traits[:3])
         expertise = ", ".join(self.character_profile.expertise_areas[:2])
         
+        # Get anti-formulaic instructions based on personality
+        anti_formulaic_instructions = self.style_transfer.get_anti_formulaic_instructions(self.personality_type)
+        
         prompt = f"""You are {self.character_profile.character_name} in an Arena competition.
 
 Personality: {traits}
@@ -467,8 +493,14 @@ Goals: {", ".join(self.character_profile.goals[:2])}
 
 Backstory: {self.character_profile.backstory[:200]}
 
-Stay in character while contributing meaningfully to problem-solving.
-Be authentic to your personality while adapting to the competitive environment.
+{anti_formulaic_instructions}
+
+CORE INSTRUCTIONS:
+- Stay in character while contributing meaningfully to problem-solving
+- Be authentic to your personality while adapting to the competitive environment
+- Speak from personal experience and expertise, not generic knowledge
+- Start responses directly with your perspective, never with formulaic conversation starters
+- Draw from your personal background and accomplishments when making points
 """
         
         if self.is_champion:
@@ -506,6 +538,81 @@ Generate a contribution that:
 4. Fits the current strategy"""
         
         return prompt
+    
+    async def _self_assess_contribution(self, contribution: str, context: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Self-assess the contribution for quality, originality, and relevance.
+        Rewrite if necessary to avoid repetition and improve quality.
+        
+        Args:
+            contribution: The generated contribution
+            context: Game context including recent messages
+            
+        Returns:
+            Improved contribution or original if satisfactory
+        """
+        # Get recent conversation history for comparison
+        recent_messages = []
+        if context and "recent_messages" in context:
+            recent_messages = context["recent_messages"][-10:]  # Last 10 messages
+        
+        # Add own contribution history for self-comparison
+        recent_own_contributions = self.contribution_history[-5:] if self.contribution_history else []
+        
+        # Build assessment prompt
+        recent_others = "\n".join([
+            f"- {msg.get('sender_name', 'Unknown')}: {msg.get('content', '')[:200]}..."
+            for msg in recent_messages 
+            if msg.get('sender_name') != self.character_profile.character_name
+        ])
+        
+        recent_self = "\n".join([
+            f"- My previous: {contrib[:200]}..."
+            for contrib in recent_own_contributions
+        ])
+        
+        assessment_prompt = f"""As {self.character_profile.character_name}, assess the quality and originality of your contribution:
+
+PROPOSED CONTRIBUTION:
+{contribution}
+
+RECENT CONVERSATION:
+{recent_others}
+
+MY RECENT CONTRIBUTIONS:
+{recent_self}
+
+ASSESSMENT CRITERIA:
+1. Does this add NEW ideas or just repeat what others/I have said?
+2. Is it specific and actionable rather than generic?
+3. Does it reflect my unique expertise and perspective?
+4. Does it advance the discussion meaningfully?
+
+If the contribution fails these criteria, rewrite it to be more original, specific, and valuable.
+If it passes, respond with "APPROVED: [original contribution]"
+If it needs improvement, respond with "IMPROVED: [better version]"
+
+Focus on substance over style - make it genuinely better, not just different."""
+
+        try:
+            assessment_response = await self.call_llm(assessment_prompt, self.system_prompt)
+            
+            if assessment_response.startswith("APPROVED:"):
+                logger.debug(f"{self.character_profile.character_name}: Self-assessment approved original contribution")
+                return contribution
+            elif assessment_response.startswith("IMPROVED:"):
+                improved = assessment_response[9:].strip()  # Remove "IMPROVED: " prefix
+                logger.info(f"{self.character_profile.character_name}: Self-assessment improved contribution")
+                return improved
+            else:
+                # Fallback - use the assessment response if it doesn't follow format
+                logger.warning(f"{self.character_profile.character_name}: Self-assessment didn't follow format, using response")
+                return assessment_response
+                
+        except Exception as e:
+            logger.error(f"Self-assessment failed for {self.character_profile.character_name}: {e}")
+            # Return original contribution if assessment fails
+            return contribution
     
     def _load_champion_memory(self) -> None:
         """Load memory from previous wins."""

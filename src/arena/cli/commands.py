@@ -175,6 +175,8 @@ class GameCommands:
         """Load or create an agent."""
         from ..agents.base_agent import AgentConfig, AgentRole
         from ..models.homunculus_integration import HomunculusCharacterProfile
+        from src.config.character_loader import CharacterLoader
+        import yaml
         
         # Create character name from ID
         character_name = agent_id.replace("_", " ").title()
@@ -187,16 +189,34 @@ class GameCommands:
             metadata={"source": "arena_cli"}
         )
         
-        # Create a basic character profile
-        # In production, this would load from the actual character schemas
-        character_profile = HomunculusCharacterProfile(
-            character_name=character_name,
-            personality_traits=["competitive", "analytical", "strategic"],
-            expertise_areas=["general"],
-            communication_style="direct",
-            backstory=f"Arena participant {agent_id}",
-            goals=["win the game", "demonstrate capability"]
-        )
+        # Try to load actual character profile from schemas
+        try:
+            character_loader = CharacterLoader()
+            char_config = character_loader.load_character(agent_id)
+            
+            # Extract character information from loaded config
+            character_profile = HomunculusCharacterProfile(
+                character_name=char_config.get("character_name", character_name),
+                personality_traits=char_config.get("personality_traits", ["competitive", "analytical"]),
+                expertise_areas=char_config.get("expertise_areas", ["general"]),
+                communication_style=char_config.get("communication_style", "direct"),
+                backstory=char_config.get("backstory", f"Arena participant {agent_id}"),
+                goals=char_config.get("goals", ["win the game", "demonstrate capability"])
+            )
+            
+            logger.info(f"Loaded character profile for {agent_id}: {character_profile.character_name}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load character profile for {agent_id}, using defaults: {e}")
+            # Fallback to basic character profile
+            character_profile = HomunculusCharacterProfile(
+                character_name=character_name,
+                personality_traits=["competitive", "analytical", "strategic"],
+                expertise_areas=["general"],
+                communication_style="direct",
+                backstory=f"Arena participant {agent_id}",
+                goals=["win the game", "demonstrate capability"]
+            )
         
         return CharacterAgent(
             config=config,

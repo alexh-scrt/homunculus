@@ -108,7 +108,7 @@ class ArenaSystemConfig:
     def recursion_limit(self) -> int:
         """Get LangGraph recursion limit"""
         # Check environment variable first, then config file, then default
-        env_limit = os.getenv("LANGGRAPH_RECURSION_LIMIT")
+        env_limit = os.getenv("ORCHESTRATION_RECURSION_LIMIT")
         if env_limit is not None:
             try:
                 return int(env_limit)

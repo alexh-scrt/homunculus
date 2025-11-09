@@ -154,7 +154,7 @@ class ArenaSettings(BaseSettings):
         description="Maximum tokens for Anthropic responses"
     )
     anthropic_temperature: float = Field(
-        default=0.7,
+        default=0.85,  # Increased from 0.7 for more creativity
         ge=0.0,
         le=2.0,
         description="Temperature for Anthropic model"
@@ -174,7 +174,7 @@ class ArenaSettings(BaseSettings):
         description="Maximum tokens for OpenAI responses"
     )
     openai_temperature: float = Field(
-        default=0.7,
+        default=0.85,  # Increased from 0.7 for more creativity
         ge=0.0,
         le=2.0,
         description="Temperature for OpenAI model"
@@ -194,6 +194,26 @@ class ArenaSettings(BaseSettings):
         description="Timeout for Ollama requests in seconds"
     )
     
+    # Ollama-Specific Parameters for Enhanced Creativity and Anti-Repetition
+    ollama_repeat_penalty_base: float = Field(
+        default=1.1,
+        ge=1.0,
+        le=1.5,
+        description="Base repeat penalty for Ollama (1.0=off, 1.5=max)"
+    )
+    ollama_top_p_base: float = Field(
+        default=0.92,
+        ge=0.1,
+        le=0.99,
+        description="Base top-p for Ollama nucleus sampling"
+    )
+    ollama_top_k_base: int = Field(
+        default=45,
+        ge=10,
+        le=100,
+        description="Base top-k vocabulary limit for Ollama"
+    )
+    
     # LLM Rate Limiting
     llm_rate_limit_requests: int = Field(
         default=60,
@@ -202,6 +222,69 @@ class ArenaSettings(BaseSettings):
     llm_rate_limit_period: int = Field(
         default=60,
         description="Rate limit period in seconds"
+    )
+    
+    # =========================================================================
+    # Role-Specific LLM Parameters (for enhanced creativity and content richness)
+    # =========================================================================
+    character_agent_temperature: float = Field(
+        default=0.9,  # High creativity for character agents in discussions
+        ge=0.0,
+        le=1.0,
+        description="Temperature for character agents (Jobs, Gates, etc.)"
+    )
+    character_agent_max_tokens: int = Field(
+        default=1200,  # More tokens for detailed responses
+        ge=100,
+        description="Max tokens for character agent responses"
+    )
+    
+    narrator_temperature: float = Field(
+        default=0.75,  # Moderate creativity for narrative flow
+        ge=0.0,
+        le=1.0,
+        description="Temperature for narrator agents"
+    )
+    narrator_max_tokens: int = Field(
+        default=800,
+        ge=100,
+        description="Max tokens for narrator responses"
+    )
+    
+    judge_temperature: float = Field(
+        default=0.6,  # Lower for more consistent scoring
+        ge=0.0,
+        le=1.0,
+        description="Temperature for judge agents"
+    )
+    judge_max_tokens: int = Field(
+        default=600,
+        ge=100,
+        description="Max tokens for judge responses"
+    )
+    
+    # Advanced creativity parameters
+    use_dynamic_temperature: bool = Field(
+        default=True,
+        description="Adjust temperature based on game context and phase"
+    )
+    creativity_boost_late_game: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=0.3,
+        description="Additional temperature boost in late game phases"
+    )
+    
+    # Content richness parameters
+    enable_diverse_response_sampling: bool = Field(
+        default=True,
+        description="Use diverse sampling techniques for richer content"
+    )
+    response_variety_factor: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=0.5,
+        description="Factor for encouraging response variety"
     )
     
     # Web Search Settings (Tavily)
@@ -515,10 +598,49 @@ class ArenaSettings(BaseSettings):
     # =========================================================================
     # Performance Tuning
     # =========================================================================
+    orchestration_recursion_limit: int = Field(
+        default=500,
+        ge=1,
+        description="LangGraph recursion limit for orchestration"
+    )
     async_batch_size: int = Field(
         default=10,
         ge=1,
         description="Batch size for async operations"
+    )
+    
+    # =========================================================================
+    # Anti-Repetition and Progression Control
+    # =========================================================================
+    enable_progression_control: bool = Field(
+        default=True,
+        description="Enable anti-repetition and progression control"
+    )
+    progression_cycles_threshold: int = Field(
+        default=2,
+        ge=1,
+        description="Number of cycles before intervention"
+    )
+    progression_max_consequence_tests: int = Field(
+        default=2,
+        ge=1,
+        description="Maximum consequence tests before forcing pivot"
+    )
+    progression_redundancy_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Semantic similarity threshold for redundancy detection"
+    )
+    progression_synthesis_interval: int = Field(
+        default=8,
+        ge=3,
+        description="Turns between synthesis interventions"
+    )
+    progression_max_conversation_history: int = Field(
+        default=10,
+        ge=3,
+        description="Maximum messages to keep in conversation history"
     )
     async_workers: int = Field(
         default=4,
