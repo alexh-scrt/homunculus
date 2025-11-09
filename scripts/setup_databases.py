@@ -22,23 +22,30 @@ async def test_chroma_connection():
     """Test ChromaDB connection and setup."""
     print("Testing ChromaDB connection...")
     try:
+        from core.experience import Experience
+        from datetime import datetime
+        
         experience_module = ExperienceModule(character_id='test_setup')
         
-        # Test storing and retrieving a sample experience
-        test_experience = {
-            'experience_id': 'test_setup',
-            'timestamp': '2025-01-01T00:00:00',
-            'description': 'Test experience for database setup',
-            'content': 'This is a test experience to verify ChromaDB is working',
-            'metadata': {'type': 'test', 'setup': True}
-        }
+        # Create a proper Experience object for testing
+        test_experience = Experience(
+            experience_id='test_setup_exp',
+            character_id='test_setup',
+            timestamp=datetime.now(),
+            experience_type='test',
+            description='Test experience for database setup',
+            participants=['test_user'],
+            emotional_state='neutral',
+            emotional_valence=0.0,
+            intensity=0.5
+        )
         
         await experience_module.store_experience(test_experience)
         print("✓ ChromaDB: Experience stored successfully")
         
-        # Test retrieval
-        results = await experience_module.retrieve_relevant_experiences(
-            "test setup", limit=1
+        # Test retrieval using similar experiences method
+        results = await experience_module.retrieve_similar_experiences(
+            "test setup", n_results=1
         )
         
         if results and len(results) > 0:
@@ -48,7 +55,7 @@ async def test_chroma_connection():
         
         # Cleanup test data
         try:
-            await experience_module.delete_experience('test_setup')
+            await experience_module.delete_experience('test_setup_exp')
             print("✓ ChromaDB: Test data cleaned up")
         except Exception:
             pass  # Ignore cleanup errors
@@ -72,27 +79,38 @@ async def test_neo4j_connection():
         
         kg_module = KnowledgeGraphModule(character_id='test_setup')
         
-        # Test connection
-        await kg_module.initialize()
+        # KnowledgeGraphModule doesn't have initialize() method, but the connection is tested in __init__
+        if not kg_module.driver:
+            print("✗ Neo4j: Driver initialization failed")
+            return False
+        
         print("✓ Neo4j: Connection established")
         
-        # Test storing and retrieving
-        await kg_module.store_entity('test_entity', 'Person', {'name': 'Test User'})
-        print("✓ Neo4j: Entity stored successfully")
+        # Test storing a fact (this is what the module actually supports)
+        test_fact = {
+            'content': 'Test fact for database setup',
+            'domain': 'test',
+            'confidence': 0.9,
+            'source_type': 'test'
+        }
         
-        # Test querying
-        result = await kg_module.query("MATCH (n:Person {name: 'Test User'}) RETURN n LIMIT 1")
-        if result:
-            print("✓ Neo4j: Query executed successfully")
+        await kg_module.store_fact(
+            fact_text=test_fact['content'],
+            source=test_fact['source_type'],
+            confidence=test_fact['confidence'],
+            domain=test_fact['domain']
+        )
+        print("✓ Neo4j: Fact stored successfully")
         
-        # Cleanup
-        try:
-            await kg_module.query("MATCH (n:Person {name: 'Test User'}) DELETE n")
-            print("✓ Neo4j: Test data cleaned up")
-        except Exception:
-            pass
+        # Test getting knowledge stats
+        stats = await kg_module.get_knowledge_stats()
+        if stats:
+            print("✓ Neo4j: Stats query executed successfully")
         
-        await kg_module.close()
+        # Cleanup - the module manages its own data, no need to manually clean up test facts
+        print("✓ Neo4j: Test completed")
+        
+        kg_module.close()
         return True
         
     except Exception as e:

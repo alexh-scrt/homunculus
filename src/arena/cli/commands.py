@@ -16,7 +16,10 @@ from datetime import datetime, timedelta
 import logging
 
 from src.arena.orchestration import GameOrchestrator
-from src.arena.agents import BaseAgent, CharacterAgent
+from src.arena.orchestration.game_orchestrator import OrchestratorConfig
+from src.arena.config import arena_config as arena_system_config
+from src.arena.game_theory import ScoringEngine, EliminationEngine
+from src.arena.agents import BaseAgent, CharacterAgent, NarratorAgent
 from src.arena.persistence import (
     GameStorage,
     TournamentManager,
@@ -35,6 +38,7 @@ from src.arena.cli.utils import (
     confirm_action,
     progress_bar
 )
+from src.arena.config.logging_config import setup_arena_logging
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +59,8 @@ class GameCommands:
         game_id: str,
         agent_ids: List[str],
         max_turns: int,
-        mode: str
+        mode: str,
+        seed_question: str = None
     ) -> int:
         """
         Start a new game.
@@ -65,11 +70,15 @@ class GameCommands:
             agent_ids: List of agent IDs
             max_turns: Maximum turns
             mode: Game mode
+            seed_question: Initial question/topic for discussion
             
         Returns:
             Exit code
         """
         print(f"Starting game: {game_id}")
+        
+        # Set up Arena logging early to avoid verbose CLI logs
+        arena_logger = setup_arena_logging(game_id, "logs")
         
         # Check if game already exists
         if game_id in self.active_games:
@@ -86,20 +95,60 @@ class GameCommands:
                 return 1
             agents.append(agent)
         
+        # Add narrator agent automatically
+        narrator = await self._create_narrator_agent(game_id, max_turns)
+        agents.append(narrator)
+        
+        # Add judge agent automatically
+        judge = await self._create_judge_agent(game_id)
+        agents.append(judge)
+        
         # Create game config
-        config = ArenaConfig(
+        mode_upper = mode.upper()
+        if mode_upper not in ["COMPETITIVE", "COOPERATIVE", "MIXED"]:
+            print(colored_text(f"Invalid mode: {mode}. Using COMPETITIVE.", "yellow"))
+            mode_upper = "COMPETITIVE"
+            
+        arena_config = ArenaConfig(
             game_id=game_id,
             max_turns=max_turns,
             elimination_rate=0.2,
-            game_mode=GameMode(mode.upper())
+            game_mode=mode_upper
         )
         
+        # Create orchestrator config using Arena configuration
+        orchestrator_config = OrchestratorConfig(
+            game_id=game_id,
+            max_turns=max_turns,
+            min_agents=max(len(agents), arena_system_config.min_agents),
+            recursion_limit=arena_system_config.recursion_limit,
+            checkpoint_frequency=arena_system_config.checkpoint_frequency,
+            enable_recovery=arena_system_config.enable_recovery,
+            parallel_execution=arena_system_config.parallel_execution,
+            timeout_seconds=arena_system_config.timeout_seconds
+        )
+        
+        # Create engines
+        scoring_engine = ScoringEngine()
+        elimination_engine = EliminationEngine()
+        
         # Create orchestrator
-        orchestrator = GameOrchestrator(config)
+        orchestrator = GameOrchestrator(
+            config=orchestrator_config,
+            agents=agents,
+            scoring_engine=scoring_engine,
+            elimination_engine=elimination_engine
+        )
         
         # Initialize game
         try:
-            await orchestrator.initialize_game(agents)
+            # Store the arena config for later use
+            orchestrator.arena_config = arena_config
+            
+            # Store seed question in orchestrator for agents to use
+            if seed_question:
+                orchestrator.seed_question = seed_question
+            
             self.active_games[game_id] = orchestrator
             
             # Start analytics tracking
@@ -109,9 +158,11 @@ class GameCommands:
             print(f"Players: {', '.join(agent_ids)}")
             print(f"Max turns: {max_turns}")
             print(f"Mode: {mode}")
+            if seed_question:
+                print(f"Topic: {colored_text(seed_question, 'cyan')}")
             
-            # Start game loop in background
-            asyncio.create_task(self._run_game_loop(game_id))
+            # Run game loop and wait for completion
+            await self._run_game_loop(game_id)
             
             return 0
             
@@ -122,17 +173,65 @@ class GameCommands:
     
     async def _load_agent(self, agent_id: str) -> Optional[BaseAgent]:
         """Load or create an agent."""
-        # For now, create basic character agents
-        # In production, load from database
-        return CharacterAgent(
+        from ..agents.base_agent import AgentConfig, AgentRole
+        from ..models.homunculus_integration import HomunculusCharacterProfile
+        
+        # Create character name from ID
+        character_name = agent_id.replace("_", " ").title()
+        
+        # Create proper AgentConfig using character name
+        config = AgentConfig(
             agent_id=agent_id,
-            name=f"Agent {agent_id}",
-            character_profile={
-                "personality": "competitive",
-                "background": "AI agent",
-                "goals": ["win the game"]
-            }
+            agent_name=character_name,  # Use character name instead of "Agent {id}"
+            role=AgentRole.CHARACTER,
+            metadata={"source": "arena_cli"}
         )
+        
+        # Create a basic character profile
+        # In production, this would load from the actual character schemas
+        character_profile = HomunculusCharacterProfile(
+            character_name=character_name,
+            personality_traits=["competitive", "analytical", "strategic"],
+            expertise_areas=["general"],
+            communication_style="direct",
+            backstory=f"Arena participant {agent_id}",
+            goals=["win the game", "demonstrate capability"]
+        )
+        
+        return CharacterAgent(
+            config=config,
+            character_profile=character_profile
+        )
+    
+    async def _create_narrator_agent(self, game_id: str, max_turns: int) -> NarratorAgent:
+        """Create a narrator agent for the game."""
+        from ..agents.base_agent import AgentConfig, AgentRole
+        
+        config = AgentConfig(
+            agent_id=f"narrator_{game_id}",
+            agent_name="Narrator",
+            role=AgentRole.NARRATOR,
+            metadata={"game_id": game_id, "max_turns": max_turns}
+        )
+        
+        narrator = NarratorAgent(config)
+        # Store max_turns for checking against final turn
+        narrator._max_turns = max_turns
+        return narrator
+    
+    async def _create_judge_agent(self, game_id: str):
+        """Create a judge agent for the game."""
+        from ..agents.base_agent import AgentConfig, AgentRole
+        from ..agents.judge_agent import JudgeAgent
+        
+        config = AgentConfig(
+            agent_id=f"judge_{game_id}",
+            agent_name="Judge",
+            role=AgentRole.JUDGE,
+            metadata={"game_id": game_id}
+        )
+        
+        return JudgeAgent(config)
     
     async def _run_game_loop(self, game_id: str) -> None:
         """Run game loop in background."""
@@ -336,32 +435,152 @@ class AgentCommands:
     
     def _load_agents(self) -> None:
         """Load agents from storage."""
-        # In production, load from database
-        # For now, use some defaults
-        self.agents = {
-            "alpha": {"name": "Agent Alpha", "type": "character", "wins": 5},
-            "beta": {"name": "Agent Beta", "type": "character", "wins": 3},
-            "gamma": {"name": "Agent Gamma", "type": "llm", "wins": 7}
-        }
+        # Load actual Homunculus characters from schema files
+        import os
+        import yaml
+        from pathlib import Path
+        
+        self.agents = {}
+        
+        # Load character schemas
+        schemas_dir = Path("schemas/characters")
+        if schemas_dir.exists():
+            for schema_file in schemas_dir.glob("*.yaml"):
+                try:
+                    with open(schema_file, 'r') as f:
+                        character_data = yaml.safe_load(f)
+                    
+                    character_id = character_data.get('character_id', schema_file.stem)
+                    character_name = character_data.get('name', character_id.replace('_', ' ').title())
+                    
+                    self.agents[character_id] = {
+                        "name": character_name,
+                        "type": "character",
+                        "wins": 0,  # Would be loaded from database in production
+                        "games": 0,  # Would be loaded from database in production
+                        "archetype": character_data.get('archetype', 'unknown'),
+                        "profile": {
+                            "age": character_data.get('demographics', {}).get('age'),
+                            "occupation": character_data.get('demographics', {}).get('occupation'),
+                            "personality": character_data.get('initial_agent_states', {}).get('personality', {}).get('big_five', {}),
+                            "background": character_data.get('demographics', {}).get('background', '')
+                        }
+                    }
+                except Exception as e:
+                    print(f"Warning: Failed to load character schema {schema_file}: {e}")
+        
+        # If no characters loaded, fall back to placeholders
+        if not self.agents:
+            print("Warning: No character schemas found, using placeholder agents")
+            self.agents = {
+                "ada_lovelace": {"name": "Ada Lovelace", "type": "character", "wins": 0, "games": 0},
+                "captain_cosmos": {"name": "Captain Cosmos", "type": "character", "wins": 0, "games": 0},
+                "zen_master": {"name": "Zen Master", "type": "character", "wins": 0, "games": 0}
+            }
     
     async def create_agent(
         self,
         agent_id: str,
         name: str,
         agent_type: str,
-        profile_file: Optional[str]
+        profile_file: Optional[str],
+        research: bool = False
     ) -> int:
-        """Create a new agent."""
+        """Create a new agent with optional automated research."""
         if agent_id in self.agents:
             print(colored_text(f"Agent {agent_id} already exists", "red"))
             return 1
         
-        # Load profile if provided
         profile = {}
+        
+        # Research-based profile creation
+        if research and agent_type == "character":
+            try:
+                print(colored_text(f"🔍 Researching character: {name}", "cyan"))
+                print("This may take 30-60 seconds...")
+                
+                # Import here to avoid circular dependencies
+                from ..agents.character_researcher import CharacterResearcher
+                
+                # Initialize researcher
+                researcher = CharacterResearcher()
+                
+                # Check if this is a public figure
+                is_public, confidence = await researcher.is_public_figure(name)
+                
+                if not is_public or confidence < 0.5:
+                    print(colored_text(f"⚠️  '{name}' does not appear to be a well-known public figure.", "yellow"))
+                    print(f"Confidence: {confidence:.1f}")
+                    
+                    # For known patterns, proceed anyway
+                    well_known_patterns = ["jobs", "einstein", "shakespeare", "gandhi", "napoleon", 
+                                         "mozart", "da vinci", "newton", "tesla", "edison", "bezos", 
+                                         "musk", "gates", "obama", "lincoln", "churchill"]
+                    
+                    should_proceed = any(pattern in name.lower() for pattern in well_known_patterns)
+                    
+                    if should_proceed:
+                        print("Proceeding with research based on name pattern...")
+                    else:
+                        try:
+                            if not confirm_action("Continue with automated research anyway?"):
+                                print("Falling back to manual agent creation...")
+                                research = False
+                            else:
+                                print("Proceeding with research...")
+                        except (EOFError, KeyboardInterrupt):
+                            print("Non-interactive environment detected. Falling back to manual agent creation...")
+                            research = False
+                
+                if research:
+                    # Conduct comprehensive research
+                    research_result = await researcher.research_character(name)
+                    
+                    print(f"Research completed! Confidence: {research_result.confidence_score:.2f}")
+                    
+                    if research_result.confidence_score < 0.3:
+                        print(colored_text(f"⚠️  Low research quality. Consider manual creation.", "yellow"))
+                        try:
+                            if not confirm_action("Use research results anyway?"):
+                                print("Falling back to manual agent creation...")
+                                research = False
+                        except (EOFError, KeyboardInterrupt):
+                            print("Using research results in non-interactive environment...")
+                            # Proceed with research in non-interactive mode
+                    
+                    if research:
+                        # Generate character profile
+                        print("📊 Generating character profile...")
+                        character_profile = await researcher.generate_character_profile(research_result)
+                        
+                        # Save as YAML file
+                        yaml_path = await researcher.save_character_profile(character_profile)
+                        
+                        print(colored_text(f"✅ Character profile saved to: {yaml_path}", "green"))
+                        
+                        # Display summary
+                        self._display_research_summary(research_result, character_profile)
+                        
+                        # Use generated profile
+                        profile = {
+                            "research_based": True,
+                            "confidence_score": research_result.confidence_score,
+                            "yaml_profile_path": str(yaml_path),
+                            "research_summary": research_result.to_dict()
+                        }
+                
+            except Exception as e:
+                logger.error(f"Research failed for {name}: {e}")
+                print(colored_text(f"❌ Research failed: {e}", "red"))
+                print("Falling back to manual agent creation...")
+                research = False
+        
+        # Load profile if provided
         if profile_file:
             try:
                 with open(profile_file, 'r') as f:
-                    profile = json.load(f)
+                    additional_profile = json.load(f)
+                    profile.update(additional_profile)
             except Exception as e:
                 print(colored_text(f"Error loading profile: {e}", "red"))
                 return 1
@@ -373,11 +592,68 @@ class AgentCommands:
             "profile": profile,
             "created": datetime.now().isoformat(),
             "wins": 0,
-            "games": 0
+            "games": 0,
+            "research_enabled": research
         }
         
-        print(colored_text(f"Agent {agent_id} created successfully!", "green"))
+        success_message = f"Agent {agent_id} created successfully!"
+        if research and profile.get("research_based"):
+            success_message += " (with automated research)"
+        
+        print(colored_text(success_message, "green"))
         return 0
+    
+    def _display_research_summary(self, research_result, character_profile: Dict[str, Any]) -> None:
+        """Display a summary of the research results."""
+        print(f"\n{'='*60}")
+        print(colored_text(f"🎭 Character Research Summary: {research_result.name}", "cyan"))
+        print(f"{'='*60}")
+        
+        # Basic info
+        print(f"\n📋 Basic Information:")
+        demographics = character_profile.get("demographics", {})
+        print(f"  Background: {demographics.get('background', 'Unknown')[:80]}...")
+        print(f"  Archetype: {character_profile.get('archetype', 'Unknown')}")
+        print(f"  Confidence Score: {research_result.confidence_score:.2f}/1.0")
+        
+        # Personality
+        personality = character_profile.get("personality", {})
+        traits = personality.get("behavioral_traits", [])
+        if traits:
+            print(f"\n🧠 Key Personality Traits:")
+            for trait in traits[:5]:
+                print(f"  • {trait}")
+        
+        # Expertise
+        specialty = character_profile.get("specialty", {})
+        expertise = specialty.get("subdomain_knowledge", [])
+        if expertise:
+            print(f"\n🎯 Areas of Expertise:")
+            for area in expertise[:5]:
+                print(f"  • {area}")
+        
+        # Achievements
+        achievements = specialty.get("notable_achievements", [])
+        if achievements:
+            print(f"\n🏆 Notable Achievements:")
+            for achievement in achievements[:3]:
+                print(f"  • {achievement}")
+        
+        # Communication style
+        comm_style = character_profile.get("communication_style", {})
+        print(f"\n💬 Communication Style:")
+        print(f"  Style: {comm_style.get('conversation_style', 'Unknown')}")
+        print(f"  Formality: {comm_style.get('formality_level', 'Unknown')}")
+        
+        # Research quality indicators
+        print(f"\n📊 Research Quality:")
+        print(f"  Biographical Data: {'✅' if research_result.biographical_info else '❌'}")
+        print(f"  Personality Traits: {'✅' if research_result.personality_traits.get('traits') else '❌'}")
+        print(f"  Achievements Found: {len(research_result.achievements)}")
+        print(f"  Expertise Areas: {len(research_result.expertise_areas)}")
+        print(f"  Research Queries: {len(research_result.raw_research_data)}")
+        
+        print(f"{'='*60}\n")
     
     async def list_agents(self, agent_type: Optional[str]) -> int:
         """List available agents."""

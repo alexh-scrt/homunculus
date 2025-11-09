@@ -30,6 +30,14 @@ except ImportError:
     ArenaKafkaProducer = None
     ArenaKafkaConsumer = None
 
+# LLM imports
+try:
+    from ..llm import ArenaLLMClient
+    from ..config import arena_config
+except ImportError:
+    ArenaLLMClient = None
+    arena_config = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -423,6 +431,29 @@ class LLMAgent(BaseAgent):
         self.system_prompt = ""
         self.conversation_history: List[Dict[str, str]] = []
         self.max_history_length = 20
+        
+        # Initialize real LLM client
+        self.llm_client = None
+        self._initialize_llm_client()
+    
+    def _initialize_llm_client(self) -> None:
+        """Initialize the LLM client based on configuration."""
+        if not ArenaLLMClient:
+            logger.warning(f"LLM client not available for {self.agent_id}, will use fallback responses")
+            return
+        
+        try:
+            # Get model and temperature from configuration
+            model = self.llm_config.get("model", "llama3.3:70b")
+            temperature = self.llm_config.get("temperature", 0.7)
+            
+            # Initialize simple Ollama client
+            self.llm_client = ArenaLLMClient(model=model, temperature=temperature)
+            logger.info(f"Initialized Ollama LLM client for {self.agent_id} with model {model}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM client for {self.agent_id}: {e}")
+            logger.warning("Will use fallback responses")
     
     @abstractmethod
     async def generate_prompt(self, context: Dict[str, Any]) -> str:
@@ -448,18 +479,188 @@ class LLMAgent(BaseAgent):
         Returns:
             LLM response
         """
-        # This is a placeholder - actual implementation would call the LLM
-        # In production, this would use langchain, openai, or anthropic SDK
-        
         logger.info(f"LLM call for {self.agent_id}: {len(prompt)} chars")
         
-        # Simulate token usage
+        # Use real LLM client if available
+        if self.llm_client:
+            try:
+                # Extract context for character-aware generation
+                context = {
+                    "agent_id": self.agent_id,
+                    "agent_name": self.agent_name,
+                    "role": self.role.value,
+                    "system_prompt": system_prompt
+                }
+                
+                # Check if streaming is enabled
+                if hasattr(self.llm_client, 'streaming_enabled') and self.llm_client.streaming_enabled:
+                    # Use streaming response
+                    response_stream = self.llm_client.generate_character_response_streaming(
+                        character_id=self.agent_id,
+                        character_name=self.agent_name,
+                        prompt=prompt,
+                        context=context
+                    )
+                    
+                    # Get arena logger for streaming output
+                    from ..config.logging_config import get_arena_logger
+                    arena_logger = get_arena_logger()
+                    
+                    if arena_logger:
+                        # Stream the response through arena logger
+                        response = arena_logger.log_agent_response_streaming(
+                            self.agent_name, 
+                            response_stream, 
+                            self.agent_id
+                        )
+                    else:
+                        # Fallback: collect all tokens
+                        response = ""
+                        for token in response_stream:
+                            response += token
+                else:
+                    # Use regular non-streaming response
+                    response = await self.llm_client.generate_character_response(
+                        character_id=self.agent_id,
+                        character_name=self.agent_name,
+                        prompt=prompt,
+                        context=context
+                    )
+                
+                # Update token tracking (approximate)
+                self.prompt_tokens_used += len(prompt) // 4
+                self.completion_tokens_used += len(response) // 4
+                self.total_tokens_used = self.prompt_tokens_used + self.completion_tokens_used
+                
+                logger.info(f"Real LLM response for {self.agent_id}: {len(response)} chars")
+                return response
+                
+            except Exception as e:
+                logger.error(f"Real LLM call failed for {self.agent_id}: {e}")
+                logger.warning("Falling back to character response generation")
+        
+        # Fallback to character-appropriate responses
+        logger.info(f"Using fallback response generation for {self.agent_id}")
+        
+        # Simulate token usage for fallback
         self.prompt_tokens_used += len(prompt) // 4
         self.completion_tokens_used += 100
         self.total_tokens_used = self.prompt_tokens_used + self.completion_tokens_used
         
-        # Placeholder response
-        return f"[LLM Response from {self.agent_name}]"
+        # Generate character-appropriate response based on prompt
+        response = await self._generate_character_response(prompt, system_prompt)
+        return response
+    
+    async def _generate_character_response(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Generate character-appropriate response based on prompt context."""
+        import random
+        
+        # Extract key context from prompt to determine response type
+        prompt_lower = prompt.lower()
+        
+        # Different response types based on prompt content
+        if "contribution" in prompt_lower or "discuss" in prompt_lower:
+            return self._generate_contribution_response()
+        elif "accusation" in prompt_lower or "accuse" in prompt_lower:
+            return self._generate_accusation_response()
+        elif "defense" in prompt_lower or "defend" in prompt_lower:
+            return self._generate_defense_response()
+        elif "summary" in prompt_lower or "summarize" in prompt_lower:
+            return self._generate_summary_response()
+        else:
+            return self._generate_generic_response()
+    
+    def _generate_contribution_response(self) -> str:
+        """Generate a contribution to the discussion."""
+        import random
+        
+        # Character-specific contributions
+        if "ada_lovelace" in self.agent_id.lower():
+            ada_contributions = [
+                "I believe we need to approach this systematically, analyzing each variable methodically.",
+                "There's a logical pattern here that suggests a more algorithmic solution.",
+                "My calculations indicate we should consider the mathematical relationships involved.",
+                "From an analytical perspective, I see several optimization opportunities.",
+                "The data suggests a different approach might yield better results.",
+                "Let me propose a more structured framework for approaching this problem."
+            ]
+            return random.choice(ada_contributions)
+        
+        elif "captain_cosmos" in self.agent_id.lower():
+            cosmos_contributions = [
+                "Fellow explorers, I sense there are cosmic forces at play here we haven't considered.",
+                "In my travels across the universe, I've encountered similar challenges - perhaps we need a broader perspective.",
+                "The stellar patterns suggest we should think beyond conventional boundaries.",
+                "My cosmic intuition tells me there's a more adventurous path forward.",
+                "Like navigating through asteroid fields, sometimes the boldest route is the safest.",
+                "We need to harness the energy of this moment and propel ourselves to new heights!"
+            ]
+            return random.choice(cosmos_contributions)
+        
+        else:
+            # Generic contributions for other characters
+            base_contributions = [
+                "I think we need to consider the broader implications of this approach.",
+                "There's an interesting angle we haven't explored yet - what if we tried a different strategy?",
+                "I've been analyzing the situation, and I believe there's a more efficient solution.",
+                "Let me propose an alternative that might address everyone's concerns.",
+                "Building on what others have said, I'd like to add another perspective.",
+                "I have some reservations about the current direction we're taking.",
+                "There's a critical factor we need to discuss before moving forward."
+            ]
+            return random.choice(base_contributions)
+    
+    def _generate_accusation_response(self) -> str:
+        """Generate an accusation."""
+        import random
+        
+        accusations = [
+            "I have concerns about someone's behavior in recent discussions.",
+            "There seems to be inconsistency in how certain arguments are being presented.",
+            "I question whether everyone is being entirely forthcoming about their motivations.",
+            "Someone here isn't being completely honest with the group."
+        ]
+        
+        return random.choice(accusations)
+    
+    def _generate_defense_response(self) -> str:
+        """Generate a defense against accusations."""
+        import random
+        
+        defenses = [
+            "I stand by my contributions and believe they've been constructive throughout.",
+            "These accusations seem unfounded - my track record speaks for itself.",
+            "I've been transparent about my reasoning from the beginning.",
+            "I think there's been a misunderstanding about my intentions."
+        ]
+        
+        return random.choice(defenses)
+    
+    def _generate_summary_response(self) -> str:
+        """Generate a summary of recent events."""
+        import random
+        
+        summaries = [
+            "The discussion has covered several key points, with varying perspectives on the best approach.",
+            "We've seen some interesting developments in the conversation, including new strategic considerations.",
+            "Recent exchanges have highlighted different viewpoints on how to proceed.",
+            "The group has explored multiple angles, though consensus hasn't emerged yet."
+        ]
+        
+        return random.choice(summaries)
+    
+    def _generate_generic_response(self) -> str:
+        """Generate a generic response when type is unclear."""
+        import random
+        
+        generic_responses = [
+            f"As {self.agent_name}, I believe we should approach this thoughtfully.",
+            f"From my perspective, there are several factors to consider here.",
+            f"I'd like to share my thoughts on how we might move forward.",
+            f"This is an interesting challenge that deserves careful consideration."
+        ]
+        
+        return random.choice(generic_responses)
     
     def add_to_history(self, role: str, content: str) -> None:
         """

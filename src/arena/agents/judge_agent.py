@@ -520,3 +520,87 @@ Provide verdict as:
             prompt_parts.append(f"Evidence: {context['evidence']}")
         
         return "\n".join(prompt_parts)
+    
+    async def generate_final_verdict(self, game_state: Dict[str, Any], conversation_history: List[Dict[str, Any]]) -> Message:
+        """
+        Generate final verdict and reasoning for the game winner.
+        
+        Args:
+            game_state: Final game state with scores and winner
+            conversation_history: Full conversation history for analysis
+            
+        Returns:
+            Final verdict message
+        """
+        winner = game_state.get("winner")
+        final_scores = game_state.get("scores", {})
+        total_turns = game_state.get("turn", 0)
+        seed_question = game_state.get("seed_question", "")
+        
+        # Format final scores for analysis
+        sorted_scores = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
+        scores_summary = "\n".join([
+            f"{i+1}. {agent_id}: {score:.2f}" 
+            for i, (agent_id, score) in enumerate(sorted_scores[:5])  # Top 5
+        ])
+        
+        # Analyze conversation highlights for each participant
+        participant_highlights = {}
+        for msg in conversation_history[-20:]:  # Last 20 messages for analysis
+            agent_id = msg.get('sender_id', 'unknown')
+            if agent_id not in participant_highlights:
+                participant_highlights[agent_id] = []
+            
+            content = msg.get('content', '')
+            if len(content) > 50:  # Substantial contributions only
+                participant_highlights[agent_id].append(content[:200] + "...")
+        
+        # Format participant analysis
+        participant_analysis = ""
+        for agent_id, highlights in participant_highlights.items():
+            if highlights and agent_id != 'narrator' and agent_id.startswith(('alice', 'bob', 'charlie', 'diana', 'eve')):  # Filter to actual participants
+                participant_analysis += f"\n{agent_id}'s contributions:\n"
+                for highlight in highlights[-3:]:  # Last 3 contributions
+                    participant_analysis += f"- {highlight}\n"
+        
+        prompt = f"""As the Judge, provide your final verdict for this Arena game with detailed reasoning.
+
+Game Details:
+- Original topic: {seed_question}
+- Total turns: {total_turns}
+- Declared winner: {winner}
+- Final scores:
+{scores_summary}
+
+Participant contributions analysis:
+{participant_analysis}
+
+Please provide a comprehensive final verdict that:
+
+1. **Validates the Winner**: Explain why {winner} deserved to win based on their contributions
+2. **Scoring Analysis**: Break down what made their contributions score highest
+3. **Comparative Analysis**: Compare the winner's approach to other strong performers
+4. **Topic Engagement**: Evaluate how well {winner} addressed the original question: "{seed_question}"
+5. **Strategic Excellence**: Note any particularly clever strategic moves or insights
+6. **Overall Assessment**: Provide your judicial assessment of the game's quality and outcome
+
+Your verdict should be authoritative, fair, and provide clear reasoning that participants and observers can understand. Include specific examples from their contributions when possible.
+
+Length: 300-400 words."""
+
+        verdict = await self.call_llm(prompt, self.system_prompt)
+        
+        return Message(
+            sender_id=self.agent_id,
+            sender_name=self.agent_name,
+            sender_type="judge",
+            message_type="final_verdict",
+            content=verdict,
+            metadata={
+                "verdict_type": "final_judgment",
+                "winner": winner,
+                "total_turns": total_turns,
+                "final_scores": final_scores,
+                "judgment_authority": "official"
+            }
+        )

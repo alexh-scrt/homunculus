@@ -51,7 +51,7 @@ class NarratorAgent(LLMAgent):
         super().__init__(config)
         
         # Narrator-specific settings
-        self.summary_frequency = config.metadata.get("summary_frequency", 5)  # Turns between summaries
+        self.summary_frequency = config.metadata.get("summary_frequency", 2)  # Turns between summaries
         self.last_summary_turn = 0
         self.key_moments: List[Dict[str, Any]] = []
         self.narrative_arc: List[str] = []
@@ -100,12 +100,16 @@ Style guidelines:
         Returns:
             Narration message if appropriate, None otherwise
         """
+        logger.info(f"Narrator processing message type: {message.message_type} from {message.sender_name}")
+        
         # Track different message types
         if message.message_type == "contribution":
             self.recent_contributions.append(message)
+            logger.info(f"Narrator tracked contribution. Total contributions: {len(self.recent_contributions)}")
             
             # Check if summary needed
             if self._should_summarize():
+                logger.info("Narrator triggering summary from process_message")
                 return await self._generate_summary()
                 
         elif message.message_type == "accusation":
@@ -119,6 +123,7 @@ Style guidelines:
         elif message.message_type == "turn_end":
             # Possible summary point
             if self._should_summarize():
+                logger.info("Narrator triggering summary from turn_end")
                 return await self._generate_summary()
                 
         elif message.message_type == "game_terminated":
@@ -136,17 +141,50 @@ Style guidelines:
         Returns:
             Generated narration if appropriate
         """
-        arena_state: ArenaState = context.get("arena_state")
+        logger.info(f"Narrator generate_action called - contributions: {len(self.recent_contributions)}, should_summarize: {self._should_summarize()}")
+        
+        # Check if this is an opening announcement request
+        if context.get("opening_announcement"):
+            logger.info("Narrator generating opening announcement")
+            return await self._generate_opening_announcement(context)
+        
+        arena_state = context.get("arena_state")
         if not arena_state:
+            logger.warning("Narrator: no arena_state in context")
             return None
         
-        # Check for narrative triggers
+        # Check if the game is ending or has ended
+        game_over = arena_state.get("game_over", False)
+        turn = context.get("turn", 0)
+        max_turns = getattr(self, '_max_turns', None) or 100  # Default fallback
+        
+        # Check if it's time for a summary when narrator is selected to speak
+        # But avoid generating regular summaries when the game is ending (final summary will be generated separately)
+        if self._should_summarize() and not game_over and turn < max_turns:
+            logger.info(f"Narrator generating summary - contributions: {len(self.recent_contributions)}")
+            return await self._generate_summary()
+        elif game_over:
+            logger.info("Narrator: Game is ending, skipping regular summary to avoid duplicates")
+            return None
+        elif turn >= max_turns:
+            logger.info(f"Narrator: Max turns reached ({turn} >= {max_turns}), skipping regular summary to avoid duplicates")
+            return None
+        
+        # Check for other narrative triggers
         if self._detect_stalemate(arena_state):
+            logger.info("Narrator detected stalemate")
             return await self._narrate_stalemate()
             
         if self._detect_breakthrough(arena_state):
+            logger.info("Narrator detected breakthrough")
             return await self._narrate_breakthrough()
         
+        # If no specific triggers, provide contextual commentary
+        if context.get("recent_messages"):
+            logger.info(f"Narrator providing contextual commentary - recent_messages: {len(context.get('recent_messages', []))}")
+            return await self._generate_contextual_commentary(context)
+        
+        logger.info("Narrator: no triggers met, returning None")
         return None
     
     async def update_state(self, state: Dict[str, Any]) -> None:
@@ -445,6 +483,56 @@ Provide a compelling final summary (250-300 words) that:
             metadata={"narration_type": "breakthrough"}
         )
     
+    async def _generate_contextual_commentary(self, context: Dict[str, Any]) -> Message:
+        """
+        Generate contextual commentary based on recent game activity.
+        
+        Args:
+            context: Current game context
+            
+        Returns:
+            Commentary message
+        """
+        recent_messages = context.get("recent_messages", [])
+        current_turn = context.get("turn", 0)
+        
+        # Format recent activity for LLM
+        activity_text = ""
+        if recent_messages:
+            activity_text = "\n".join([
+                f"- {msg.get('sender_name', 'Unknown')}: {msg.get('content', '')[:100]}..."
+                for msg in recent_messages[-3:]  # Last 3 messages
+            ])
+        else:
+            activity_text = "The game has just begun with agents preparing their strategies."
+        
+        prompt = f"""Provide brief narrative commentary on the current state of the Arena game.
+
+Current turn: {current_turn}
+Recent activity:
+{activity_text}
+
+Provide 1-2 sentences that:
+1. Capture the current dynamic between agents
+2. Set the stage for what comes next
+3. Maintain engagement without taking sides
+
+Keep it under 100 words and focus on the strategic interplay."""
+        
+        commentary = await self.call_llm(prompt, self.system_prompt)
+        
+        return Message(
+            sender_id=self.agent_id,
+            sender_name=self.agent_name,
+            sender_type="narrator",
+            message_type="narration",
+            content=commentary,
+            metadata={
+                "narration_type": "contextual_commentary",
+                "turn": current_turn
+            }
+        )
+    
     async def generate_prompt(self, context: Dict[str, Any]) -> str:
         """
         Generate a prompt for narrative generation.
@@ -468,3 +556,133 @@ Provide a compelling final summary (250-300 words) that:
             prompt_parts.append(f"Active agents: {context['active_agents']}")
         
         return "\n".join(prompt_parts)
+    
+    async def generate_final_summary(self, game_state: Dict[str, Any]) -> Message:
+        """
+        Generate final summary of the entire game.
+        
+        Args:
+            game_state: Final game state with winner, scores, and history
+            
+        Returns:
+            Final summary message
+        """
+        winner = game_state.get("winner")
+        final_scores = game_state.get("scores", {})
+        total_turns = game_state.get("turn", 0)
+        seed_question = game_state.get("seed_question", "")
+        
+        # Get conversation history for summary
+        recent_messages = self.recent_contributions[-10:] if len(self.recent_contributions) >= 10 else self.recent_contributions
+        
+        # Format conversation highlights
+        conversation_highlights = ""
+        if recent_messages:
+            conversation_highlights = "\n".join([
+                f"- {msg.sender_name}: {msg.content[:150]}..."
+                for msg in recent_messages
+            ])
+        else:
+            conversation_highlights = "Limited conversation recorded."
+        
+        # Format final scores
+        sorted_scores = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
+        scores_summary = "\n".join([
+            f"{i+1}. {agent_id}: {score:.2f}" 
+            for i, (agent_id, score) in enumerate(sorted_scores)
+        ])
+        
+        prompt = f"""Generate a comprehensive final summary of this Arena game that just concluded.
+
+Game Details:
+- Original topic: {seed_question}
+- Total turns: {total_turns}
+- Winner: {winner}
+- Final scores:
+{scores_summary}
+
+Key conversation highlights:
+{conversation_highlights}
+
+Please provide a final summary that:
+1. Reflects on the overall discussion and how it evolved
+2. Highlights the most insightful contributions
+3. Notes any key turning points or breakthrough moments
+4. Describes the strategic dynamics between participants
+5. Explains how the discussion addressed the original topic
+6. Provides closure to the narrative arc
+
+Keep it engaging but professional, around 200-300 words."""
+
+        summary = await self.call_llm(prompt, self.system_prompt)
+        
+        return Message(
+            sender_id=self.agent_id,
+            sender_name=self.agent_name,
+            sender_type="narrator",
+            message_type="final_summary",
+            content=summary,
+            metadata={
+                "narration_type": "final_summary",
+                "winner": winner,
+                "total_turns": total_turns,
+                "final_scores": final_scores
+            }
+        )
+    
+    async def _generate_opening_announcement(self, context: Dict[str, Any]) -> Message:
+        """
+        Generate opening announcement for the game.
+        
+        Args:
+            context: Game context with participants, topic, and rules
+            
+        Returns:
+            Opening announcement message
+        """
+        participants = context.get("participants", [])
+        seed_question = context.get("seed_question", "")
+        max_turns = context.get("max_turns", 100)
+        game_id = context.get("game_id", "Unknown")
+        
+        # Format participant list
+        if len(participants) == 1:
+            participant_list = participants[0]
+        elif len(participants) == 2:
+            participant_list = f"{participants[0]} and {participants[1]}"
+        else:
+            participant_list = f"{', '.join(participants[:-1])}, and {participants[-1]}"
+        
+        prompt = f"""Generate an exciting opening announcement for the Arena game.
+        
+Game Details:
+- Topic/Challenge: "{seed_question}"
+- Participants: {participant_list}
+- Maximum turns: {max_turns}
+- Game ID: {game_id}
+
+Your opening announcement should:
+1. Welcome everyone to the Arena
+2. Introduce the topic/challenge in an engaging way
+3. Present the competing participants with enthusiasm
+4. Explain the basic rules (agents will take turns contributing ideas, scored by the judge)
+5. Set an exciting, competitive tone
+6. Encourage participants to begin the competition
+
+Keep it dynamic and professional, around 150-200 words. Think of it like a sports announcer introducing a championship match."""
+
+        announcement = await self.call_llm(prompt, self.system_prompt)
+        
+        return Message(
+            sender_id=self.agent_id,
+            sender_name=self.agent_name,
+            sender_type="narrator",
+            message_type="opening_announcement",
+            content=announcement,
+            metadata={
+                "narration_type": "opening_announcement",
+                "participants": participants,
+                "topic": seed_question,
+                "max_turns": max_turns
+            }
+        )

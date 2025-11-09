@@ -158,7 +158,7 @@ class CharacterAgent(LLMAgent):
         
         # Check if should contribute
         if context.get("my_turn", False):
-            return await self._generate_contribution()
+            return await self._generate_contribution(context)
         
         return None
     
@@ -176,21 +176,50 @@ class CharacterAgent(LLMAgent):
         if "game_phase" in state:
             self._update_strategy(state["game_phase"])
     
-    async def _generate_contribution(self) -> Message:
+    async def _generate_contribution(self, context: Optional[Dict[str, Any]] = None) -> Message:
         """
         Generate a contribution through internal deliberation.
+        
+        Args:
+            context: Optional game context with conversation history
         
         Returns:
             Contribution message
         """
-        # Gather perspectives from internal agents
-        perspectives = await self._gather_internal_perspectives()
+        # Build conversation context from recent history
+        conversation_context = self._build_conversation_context(context)
         
-        # Consolidate through Interface agent
-        consolidated = self.internal_agents["interface"].consolidate(perspectives)
+        # Get seed question from context
+        seed_question = context.get("seed_question") if context else None
         
-        # Generate contribution using LLM
-        prompt = self._build_contribution_prompt(consolidated)
+        # Create prompt with conversation history
+        if conversation_context:
+            # Include seed question reference in ongoing discussion
+            seed_context = f"\nOriginal discussion topic: {seed_question}\n" if seed_question else ""
+            prompt = f"""As {self.character_profile.character_name}, contribute meaningfully to this ongoing discussion.
+{seed_context}
+Recent conversation:
+{conversation_context}
+
+Your task: Provide a thoughtful response that:
+- Builds on or responds to what others have said
+- Reflects your unique perspective and expertise  
+- Moves the discussion forward in a productive way
+- Stays true to your character
+- Relates to the original topic when relevant
+
+Contribute now:"""
+        else:
+            # Use seed question to start discussion, or fall back to open-ended
+            if seed_question:
+                prompt = f"""As {self.character_profile.character_name}, you're starting a discussion about: {seed_question}
+
+Share your initial thoughts, perspective, or approach to this topic. Draw on your personality, expertise, and unique viewpoint to contribute meaningfully to the conversation.
+
+Your response:"""
+            else:
+                prompt = f"As {self.character_profile.character_name}, start a meaningful discussion based on your personality and expertise. What would you like to explore or propose?"
+        
         contribution = await self.call_llm(prompt, self.system_prompt)
         
         # Track contribution
@@ -205,9 +234,53 @@ class CharacterAgent(LLMAgent):
             metadata={
                 "character": self.character_profile.character_name,
                 "strategy": self.current_strategy,
-                "internal_consensus": consolidated.get("consensus", True)
+                "internal_consensus": True
             }
         )
+    
+    def _build_conversation_context(self, context: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Build conversation context from recent messages and history.
+        
+        Args:
+            context: Game context that may contain recent messages
+            
+        Returns:
+            Formatted conversation context string
+        """
+        conversation_parts = []
+        
+        # Include recent contribution history from this agent
+        if self.contribution_history:
+            recent_contributions = self.contribution_history[-3:]  # Last 3 contributions
+            for i, contribution in enumerate(recent_contributions):
+                conversation_parts.append(f"My previous contribution: \"{contribution[:150]}...\"")
+        
+        # Include recent messages from context if available
+        if context and "recent_messages" in context:
+            messages = context["recent_messages"][-5:]  # Last 5 messages
+            for msg in messages:
+                if isinstance(msg, dict):
+                    speaker = msg.get("sender_name", msg.get("sender_id", "Unknown"))
+                    content = msg.get("content", "")
+                    if content and speaker != self.character_profile.character_name:
+                        conversation_parts.append(f"{speaker}: \"{content[:200]}...\"")
+        
+        # Include basic game state context
+        if context:
+            turn = context.get("turn", "unknown")
+            phase = context.get("phase", "early")
+            scores = context.get("scores", {})
+            
+            if scores:
+                my_score = scores.get(self.agent_id, 0)
+                other_scores = {k: v for k, v in scores.items() if k != self.agent_id}
+                conversation_parts.append(f"Game status: Turn {turn}, Phase: {phase}")
+                conversation_parts.append(f"My current score: {my_score:.2f}")
+                if other_scores:
+                    conversation_parts.append(f"Other scores: {other_scores}")
+        
+        return "\n".join(conversation_parts) if conversation_parts else ""
     
     async def _generate_accusation(self, context: Dict[str, Any]) -> Message:
         """

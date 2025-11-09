@@ -320,26 +320,30 @@ class GameStateManager:
             phase: Starting phase
         """
         # Create arena state
+        # Convert agent IDs to AgentState objects (minimal for now)
+        from ..models import AgentState
+        active_agent_states = [
+            AgentState(
+                agent_id=agent_id, 
+                character_name=agent_id.replace('_', ' ').title(),
+                character_profile={"name": agent_id}  # Minimal profile
+            ) 
+            for agent_id in active_agents
+        ]
+        
         self.arena_state = ArenaState(
             game_id=self.game_id,
             current_turn=0,
-            active_agent_ids=active_agents,
-            eliminated_agent_ids=[],
-            current_phase=phase.value,
-            is_active=True
+            active_agents=active_agent_states,
+            eliminated_agents=[]
         )
         
         # Create agent states
         for agent_id in active_agents:
             self.agent_states[agent_id] = AgentState(
                 agent_id=agent_id,
-                is_active=True,
-                score=0.0,
-                total_contributions=0,
-                total_accusations=0,
-                times_accused=0,
-                elimination_votes_received=0,
-                last_contribution_turn=None
+                character_name=agent_id.replace('_', ' ').title(),
+                character_profile={"name": agent_id}  # Minimal profile
             )
         
         logger.info(f"Initialized state for game {self.game_id}")

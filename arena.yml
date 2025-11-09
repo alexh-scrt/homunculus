@@ -1,0 +1,93 @@
+# Homunculus Arena Configuration
+# Configuration for multi-agent game environment
+
+# Game orchestration settings
+orchestration:
+  # LangGraph execution settings
+  recursion_limit: 500        # LangGraph recursion limit to prevent infinite loops
+  max_turns: 100             # Maximum turns per game
+  min_agents: 2              # Minimum agents required to start a game
+  checkpoint_frequency: 5     # Create checkpoint every N turns
+  enable_recovery: true       # Enable game state recovery from checkpoints
+  parallel_execution: true   # Enable parallel agent processing
+  timeout_seconds: 300       # Game timeout in seconds
+  retry_attempts: 3          # Maximum retry attempts on failure
+
+# Game termination settings
+termination:
+  safety_turn_limit: 50      # Hard safety limit to prevent infinite games
+  phase_transition_limits:
+    early: 20                # Turns before transitioning to mid phase
+    mid: 50                  # Turns before transitioning to late phase
+    late: 80                 # Turns before transitioning to final phase
+  
+  # Automatic termination conditions
+  auto_terminate:
+    max_turns_reached: true          # End when max_turns reached
+    single_survivor: true            # End when only one agent remains
+    all_eliminated: true             # End if all agents eliminated (safety)
+    safety_limit_reached: true      # End at safety turn limit
+
+# Elimination mechanics
+elimination:
+  enabled: true               # Enable agent elimination
+  min_turn_threshold: 20      # Minimum turns before elimination can occur
+  frequency: 10               # Check elimination every N turns
+  rate: 0.2                   # Elimination rate (20% chance per check)
+
+# Scoring system
+scoring:
+  weights:
+    novelty: 0.25            # Weight for novel contributions
+    builds_on_others: 0.20   # Weight for building on other agents
+    solves_subproblem: 0.25  # Weight for problem-solving contributions
+    radical_idea: 0.15       # Weight for radical/creative ideas
+    manipulation: 0.15       # Weight for strategic manipulation
+
+# Game modes
+modes:
+  competitive:
+    description: "Agents compete for survival and victory"
+    elimination_enabled: true
+    cooperation_penalty: true
+  
+  cooperative:
+    description: "Agents work together to solve problems"
+    elimination_enabled: false
+    cooperation_bonus: true
+  
+  mixed:
+    description: "Balance of competition and cooperation"
+    elimination_enabled: true
+    cooperation_bonus: false
+
+# Logging and monitoring
+logging:
+  level: "INFO"              # Log level: DEBUG, INFO, WARN, ERROR
+  event_streaming: true      # Enable real-time event streaming
+  performance_metrics: true # Log performance metrics
+  game_statistics: true     # Log detailed game statistics
+  
+  # Output settings
+  log_to_file: true          # Save logs to files
+  log_directory: "logs/arena" # Directory for log files
+
+# Agent management
+agents:
+  initialization_timeout: 30  # Timeout for agent initialization (seconds)
+  action_timeout: 60         # Timeout for agent actions (seconds)
+  max_message_length: 2000   # Maximum message length in characters
+  
+  # Character integration
+  character_schemas_path: "schemas/characters/"  # Path to character YAML files
+  auto_load_characters: true                     # Automatically load available characters
+
+# Development and testing
+development:
+  enable_debug_mode: false   # Enable verbose debugging
+  test_mode_turn_limit: 10   # Turn limit for test games
+  mock_agents: false         # Use mock agents for testing
+  
+  # Performance testing
+  benchmark_mode: false      # Enable benchmarking
+  profile_execution: false   # Enable execution profiling

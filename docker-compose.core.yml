@@ -1,0 +1,156 @@
+version: '3.8'
+
+# DEPRECATED: This file has been merged with docker-compose.arena.yml
+# Please use docker-compose.unified.yml instead for all services.
+#
+# For backward compatibility, this file still contains the core services.
+# Environment variables can be set in .env file
+# See .env.example for all available options
+
+services:
+  # Ollama service - serves LLM models with auto model pulling
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-1}
+      - OLLAMA_NUM_THREADS=${OLLAMA_NUM_THREADS:-8}
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Start ollama in the background
+        ollama serve &
+        OLLAMA_PID=$!
+        
+        # Wait for ollama to be ready
+        echo "Waiting for Ollama to start..."
+        for i in {1..30}; do
+          if ollama list > /dev/null 2>&1; then
+            echo "Ollama is ready!"
+            break
+          fi
+          echo "Waiting... ($i/30)"
+          sleep 2
+        done
+        
+        # Check if model exists, if not pull it
+        if ! ollama list | grep -q "llama3.3:70b"; then
+          echo "Pulling llama3.3:70b model..."
+          ollama pull llama3.3:70b
+          echo "Model pulled successfully!"
+        else
+          echo "Model llama3.3:70b already exists"
+        fi
+        
+        echo "Ollama ready with models!"
+        
+        # Keep ollama running
+        wait $OLLAMA_PID
+    networks:
+      - agent-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ChromaDB - vector database for embeddings
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "${CHROMA_PORT:-8000}:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=${CHROMA_PERSIST_DIRECTORY:-/chroma/chroma}
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Neo4j - graph database
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"  # HTTP
+      - "${NEO4J_BOLT_PORT:-7687}:7687"  # Bolt
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-import:/var/lib/neo4j/import
+      - neo4j-plugins:/plugins
+    environment:
+      - NEO4J_AUTH=neo4j/homunculus123
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p homunculus123 'RETURN 1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis - caching and message broker
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory ${REDIS_MAX_MEMORY:-512mb} --maxmemory-policy allkeys-lru
+    networks:
+      - agent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ollama-data:
+    driver: local
+  chroma-data:
+    driver: local
+  neo4j-data:
+    driver: local
+  neo4j-logs:
+    driver: local
+  neo4j-import:
+    driver: local
+  neo4j-plugins:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  agent-network:
+    driver: bridge

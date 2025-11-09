@@ -1,9 +1,5 @@
-"""Configuration Module
+"""Arena configuration module."""
 
-Manages all Arena configuration including:
-- Environment variables
-- Game settings
-- Scoring weights
-- Agent prompts
-- Scenario templates
-"""
+from .arena_config import ArenaSystemConfig, arena_config
+
+__all__ = ['ArenaSystemConfig', 'arena_config']

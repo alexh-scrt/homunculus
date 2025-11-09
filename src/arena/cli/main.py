@@ -150,6 +150,11 @@ class ArenaCLI:
             default="competitive",
             help="Game mode"
         )
+        parser_start.add_argument(
+            "-s", "--seed",
+            type=str,
+            help="Seed question or topic to start the discussion (if not provided, will prompt for input)"
+        )
         
         # Stop game
         parser_stop = subparsers.add_parser(
@@ -238,6 +243,11 @@ class ArenaCLI:
             "--profile",
             type=str,
             help="Character profile JSON file"
+        )
+        parser_create.add_argument(
+            "--research",
+            action="store_true",
+            help="Automatically research the character using web search (for public figures)"
         )
         
         # List agents
@@ -470,11 +480,17 @@ class ArenaCLI:
         try:
             # Game commands
             if parsed_args.command == "start":
+                # Handle seed question - prompt user if not provided
+                seed_question = parsed_args.seed
+                if not seed_question:
+                    seed_question = self._prompt_for_seed_question()
+                
                 return await self.game_commands.start_game(
                     parsed_args.game_id,
                     parsed_args.agents,
                     parsed_args.max_turns,
-                    parsed_args.mode
+                    parsed_args.mode,
+                    seed_question
                 )
             
             elif parsed_args.command == "stop":
@@ -504,7 +520,8 @@ class ArenaCLI:
                     parsed_args.agent_id,
                     parsed_args.name,
                     parsed_args.type,
-                    parsed_args.profile
+                    parsed_args.profile,
+                    parsed_args.research
                 )
             
             elif parsed_args.command == "agents":
@@ -638,6 +655,52 @@ class ArenaCLI:
             except Exception as e:
                 print(f"Error: {e}")
                 continue
+    
+    def _prompt_for_seed_question(self) -> str:
+        """
+        Prompt user for a seed question or topic to start the discussion.
+        
+        Returns:
+            Seed question/topic string
+        """
+        print("\n" + "="*60)
+        print("🌱 SEED QUESTION / TOPIC")
+        print("="*60)
+        print("Please provide a question or topic to start the Arena discussion.")
+        print("This will set the context for the agents to debate and explore.")
+        print("\nExamples:")
+        print("  • What is the future of artificial intelligence?")
+        print("  • How should we approach climate change?")
+        print("  • Design a perfect city for the year 2050")
+        print("  • What makes a good leader?")
+        print("  • Should we colonize Mars?")
+        print("\n" + "-"*60)
+        
+        while True:
+            try:
+                seed_input = input("Enter your question/topic: ").strip()
+                
+                if not seed_input:
+                    print("Please enter a valid question or topic.")
+                    continue
+                
+                # Confirm the input
+                print(f"\nYou entered: {colored_text(seed_input, 'cyan')}")
+                confirm = input("Is this correct? (y/n): ").strip().lower()
+                
+                if confirm in ['y', 'yes']:
+                    print(f"\n✅ Great! Starting game with topic: {colored_text(seed_input, 'green')}")
+                    return seed_input
+                else:
+                    print("Let's try again...\n")
+                    continue
+                    
+            except KeyboardInterrupt:
+                print("\n\nGame cancelled by user.")
+                sys.exit(130)
+            except EOFError:
+                print("\n\nGame cancelled.")
+                sys.exit(130)
 
 
 def main():

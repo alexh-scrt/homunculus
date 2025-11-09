@@ -696,7 +696,7 @@ Built with:
 
 ---
 
-**Built with ❤️ by [Your Name/Team]**
+**Built with ❤️ by A13X**
 
 *"We don't build chatbots with roles. We build artificial humans with psychology."*# homunculus
 # homunculus

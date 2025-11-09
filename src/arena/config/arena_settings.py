@@ -135,6 +135,11 @@ class ArenaSettings(BaseSettings):
         description="Default LLM provider to use"
     )
     
+    enable_streaming_response: bool = Field(
+        default=False,
+        description="Enable streaming response output for live conversation feel"
+    )
+    
     # Anthropic Settings
     anthropic_api_key: Optional[str] = Field(
         default=None,
@@ -197,6 +202,25 @@ class ArenaSettings(BaseSettings):
     llm_rate_limit_period: int = Field(
         default=60,
         description="Rate limit period in seconds"
+    )
+    
+    # Web Search Settings (Tavily)
+    tavily_api_key: Optional[str] = Field(
+        default=None,
+        env="TAVILY_API_KEY",
+        description="Tavily API key for web search functionality"
+    )
+    web_search_enabled: bool = Field(
+        default=True,
+        env="WEB_SEARCH_ENABLED", 
+        description="Enable web search for agents"
+    )
+    web_search_max_results: int = Field(
+        default=5,
+        env="WEB_SEARCH_MAX_RESULTS",
+        ge=1,
+        le=20,
+        description="Maximum number of search results to return"
     )
     
     # =========================================================================
@@ -537,6 +561,11 @@ class ArenaSettings(BaseSettings):
         super().__init__(**kwargs)
         # Ensure log directory exists
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    @property
+    def is_web_search_enabled(self) -> bool:
+        """Check if web search is properly configured and enabled."""
+        return self.web_search_enabled and bool(self.tavily_api_key)
     
     def validate_llm_keys(self) -> bool:
         """
